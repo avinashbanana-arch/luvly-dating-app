@@ -1,0 +1,13 @@
+node_modules/
+dist/
+build/
+.env
+.env.*
+backend/.env
+frontend/.env
+backend/node_modules/
+frontend/node_modules/
+frontend/android/app/build/
+frontend/android/.gradle/
+frontend/ios/App/Pods/
+.DS_Store

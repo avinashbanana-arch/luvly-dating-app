@@ -1,0 +1,11 @@
+{
+  "welcome": "Welcome back!",
+  "otp_sent": "OTP sent to your phone",
+  "otp_invalid": "Invalid or expired OTP",
+  "profile_updated": "Profile updated successfully",
+  "match_found": "It's a match!",
+  "report_submitted": "Thanks, we've received your report and will review it",
+  "user_blocked": "User has been blocked",
+  "subscription_active": "Your premium subscription is now active",
+  "verification_pending": "Your selfie has been submitted for verification"
+}
