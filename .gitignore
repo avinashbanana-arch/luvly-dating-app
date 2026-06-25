@@ -11,3 +11,4 @@ frontend/android/app/build/
 frontend/android/.gradle/
 frontend/ios/App/Pods/
 .DS_Store
+key
