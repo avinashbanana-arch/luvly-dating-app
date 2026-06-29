@@ -4,10 +4,30 @@ const prisma = require("../config/db");
 const { t } = require("../utils/i18n");
 const { getPlansForCountry, normalizeCountry } = require("../utils/pricing");
 
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET,
-});
+let razorpay;
+
+function getRazorpayConfigError(requiredKeys) {
+  const missing = requiredKeys.filter((key) => !process.env[key]);
+  return missing.length ? `Missing required Razorpay environment variables: ${missing.join(", ")}` : null;
+}
+
+function getRazorpayClient() {
+  const configError = getRazorpayConfigError(["RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET"]);
+  if (configError) {
+    const err = new Error(configError);
+    err.status = 500;
+    throw err;
+  }
+
+  if (!razorpay) {
+    razorpay = new Razorpay({
+      key_id: process.env.RAZORPAY_KEY_ID,
+      key_secret: process.env.RAZORPAY_KEY_SECRET,
+    });
+  }
+
+  return razorpay;
+}
 
 /** GET /api/payment/plans - exposes pricing to the frontend */
 function getPlans(req, res) {
@@ -24,7 +44,7 @@ async function createOrder(req, res) {
   if (!planDetails) return res.status(400).json({ error: "Invalid plan" });
 
   try {
-    const order = await razorpay.orders.create({
+    const order = await getRazorpayClient().orders.create({
       amount: planDetails.amountMinor,
       currency: planDetails.currency,
       receipt: `order_rcpt_${req.user.id}_${Date.now()}`,
@@ -50,6 +70,9 @@ async function verifyPayment(req, res) {
   const plans = getPlansForCountry(country);
   const planDetails = plans[plan];
   if (!planDetails) return res.status(400).json({ error: "Invalid plan" });
+
+  const configError = getRazorpayConfigError(["RAZORPAY_KEY_SECRET"]);
+  if (configError) return res.status(500).json({ error: configError });
 
   const expectedSignature = crypto
     .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
@@ -172,6 +195,9 @@ async function syncRevenueCatSubscription(req, res) {
  * signature — see server.js where express.raw() is applied just for this path.
  */
 async function razorpayWebhook(req, res) {
+  const configError = getRazorpayConfigError(["RAZORPAY_WEBHOOK_SECRET"]);
+  if (configError) return res.status(500).json({ error: configError });
+
   const signature = req.headers["x-razorpay-signature"];
   const expected = crypto
     .createHmac("sha256", process.env.RAZORPAY_WEBHOOK_SECRET)
