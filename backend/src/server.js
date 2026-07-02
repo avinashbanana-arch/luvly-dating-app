@@ -18,12 +18,30 @@ const { initChatSocket } = require("./sockets/chatSocket");
 const app = express();
 const server = http.createServer(app);
 
+const defaultAllowedOrigins = [
+  "capacitor://localhost",
+  "http://localhost",
+  "https://localhost",
+  "http://localhost:5173",
+  "https://luvly-dating-app.vercel.app",
+];
+const configuredAllowedOrigins = (process.env.CLIENT_URL || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const allowedOrigins = new Set([...defaultAllowedOrigins, ...configuredAllowedOrigins]);
+
+function corsOrigin(origin, callback) {
+  if (!origin || allowedOrigins.has(origin)) return callback(null, true);
+  return callback(new Error(`CORS blocked for origin: ${origin}`));
+}
+
 const io = new Server(server, {
-  cors: { origin: process.env.CLIENT_URL || "*" },
+  cors: { origin: corsOrigin },
 });
 
 app.use(helmet());
-app.use(cors({ origin: process.env.CLIENT_URL || "*" }));
+app.use(cors({ origin: corsOrigin }));
 
 // Razorpay webhook needs the RAW body for signature verification, so it
 // must be registered BEFORE express.json() and excluded from JSON parsing.

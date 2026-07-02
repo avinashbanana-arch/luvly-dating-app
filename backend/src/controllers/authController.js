@@ -23,8 +23,8 @@ async function requestOtp(req, res) {
     const phone = normalizePhone(req.body.phone);
     if (!phone) return res.status(400).json({ error: "Phone number is required" });
 
-    await sendOtp(phone);
-    return res.json({ message: t("otp_sent"), phone });
+    const result = await sendOtp(phone);
+    return res.json({ message: t("otp_sent"), phone, delivery: result.delivery });
   } catch (err) {
     return res.status(500).json({ error: "Failed to send OTP", details: err.message });
   }
@@ -38,11 +38,15 @@ async function requestEmailOtp(req, res) {
       return res.status(400).json({ error: "Valid email is required" });
     }
 
-    await sendOtp(email);
+    const result = await sendOtp(email);
     return res.json({
       message: "Email OTP sent",
       email,
-      devHint: "In dev mode, the email OTP is printed in the backend terminal.",
+      delivery: result.delivery,
+      devHint:
+        result.delivery === "console"
+          ? "In dev mode, the email OTP is printed in the backend terminal."
+          : undefined,
     });
   } catch (err) {
     return res.status(500).json({ error: "Failed to send email OTP", details: err.message });
