@@ -1,12 +1,14 @@
 import { motion, AnimatePresence } from "motion/react";
 import { Heart, MessageCircle, X } from "lucide-react";
 import { Profile } from "./SwipeCard";
+import { PublicProfileDetails } from "./PublicProfileDetails";
 
 interface MatchModalProps {
   isOpen: boolean;
   profile: Profile | null;
   onClose: () => void;
   onSendMessage: () => void;
+  onKeepSwiping?: () => void;
 }
 
 export function MatchModal({
@@ -14,6 +16,7 @@ export function MatchModal({
   profile,
   onClose,
   onSendMessage,
+  onKeepSwiping,
 }: MatchModalProps) {
   if (!profile) return null;
 
@@ -70,6 +73,10 @@ export function MatchModal({
               You and {profile.name} have liked each other
             </motion.p>
 
+            <div className="mb-6 max-h-56 overflow-y-auto rounded-2xl bg-black/15 p-4 text-left">
+              <PublicProfileDetails profile={profile} showPhotos />
+            </div>
+
             <motion.div
               initial={{ y: 20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
@@ -77,17 +84,17 @@ export function MatchModal({
               className="flex gap-4"
             >
               <button
-                onClick={onClose}
+                onClick={onKeepSwiping || onClose}
                 className="flex-1 py-3 rounded-full bg-white/20 hover:bg-white/30 transition-colors"
               >
-                Keep Swiping
+                Maybe Later
               </button>
               <button
                 onClick={onSendMessage}
                 className="flex-1 py-3 rounded-full bg-white text-pink-500 hover:bg-white/90 transition-colors flex items-center justify-center gap-2"
               >
                 <MessageCircle className="w-5 h-5" />
-                Send Message
+                It's a Match 💞
               </button>
             </motion.div>
           </motion.div>

@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { Plus, Trash2, Video, Camera, X } from "lucide-react";
+import { Plus, Video, Camera, X } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 interface PhotoVideoUploadProps {
@@ -7,6 +7,9 @@ interface PhotoVideoUploadProps {
   video?: string;
   onImagesChange: (images: string[]) => void;
   onVideoChange: (video: string) => void;
+  onImageFilesAdded?: (files: File[]) => void;
+  onVideoFileChange?: (file: File | null) => void;
+  onRemoveImage?: (index: number) => void;
   minPhotos?: number;
   maxPhotos?: number;
 }
@@ -16,39 +19,54 @@ export function PhotoVideoUpload({
   video,
   onImagesChange,
   onVideoChange,
+  onImageFilesAdded,
+  onVideoFileChange,
+  onRemoveImage,
   minPhotos = 4,
-  maxPhotos = 6,
+  maxPhotos = 5,
 }: PhotoVideoUploadProps) {
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
+  const [error, setError] = useState("");
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files) {
+      if (images.length + files.length > maxPhotos) {
+        setError(`You can upload a maximum of ${maxPhotos} photos.`);
+        e.target.value = "";
+        return;
+      }
+      setError("");
+      onImageFilesAdded?.(Array.from(files));
       const newImages: string[] = [];
       Array.from(files).forEach((file) => {
         const reader = new FileReader();
         reader.onloadend = () => {
           newImages.push(reader.result as string);
           if (newImages.length === files.length) {
-            onImagesChange([...images, ...newImages].slice(0, maxPhotos));
+            onImagesChange([...images, ...newImages]);
           }
         };
         reader.readAsDataURL(file);
       });
     }
+    e.target.value = "";
   };
 
   const handleVideoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      // Check file size (max 50MB)
-      if (file.size > 50 * 1024 * 1024) {
-        alert("Video file is too large. Maximum size is 50MB.");
+      // Keep this aligned with the server-side multipart limit so a selected
+      // video cannot appear saved locally and then fail during upload.
+      if (file.size > 20 * 1024 * 1024) {
+        alert("Video file is too large. Maximum size is 20MB.");
         return;
       }
       const reader = new FileReader();
       reader.onloadend = () => {
+        onVideoFileChange?.(file);
         onVideoChange(reader.result as string);
       };
       reader.readAsDataURL(file);
@@ -56,10 +74,13 @@ export function PhotoVideoUpload({
   };
 
   const removeImage = (index: number) => {
-    onImagesChange(images.filter((_, i) => i !== index));
+    if (onRemoveImage) onRemoveImage(index);
+    else onImagesChange(images.filter((_, i) => i !== index));
+    setError("");
   };
 
   const removeVideo = () => {
+    onVideoFileChange?.(null);
     onVideoChange("");
   };
 
@@ -83,6 +104,7 @@ export function PhotoVideoUpload({
           </p>
         </div>
       </div>
+      {error && <p className="text-sm text-red-500">{error}</p>}
 
       {/* Photos Grid */}
       <div className="grid grid-cols-3 gap-3">
@@ -94,17 +116,21 @@ export function PhotoVideoUpload({
             exit={{ scale: 0 }}
             className="relative aspect-square rounded-2xl overflow-hidden group"
           >
-            <img
-              src={image}
-              alt={`Photo ${index + 1}`}
-              className="w-full h-full object-cover"
-            />
-            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+            <button type="button" onClick={() => setPreviewImage(image)} className="h-full w-full">
+              <img
+                src={image}
+                alt={`Photo ${index + 1}`}
+                className="w-full h-full object-cover"
+              />
+            </button>
+            <div className="absolute right-2 top-2 flex items-center justify-center">
               <button
+                type="button"
                 onClick={() => removeImage(index)}
-                className="p-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
+                className="p-2 bg-black/70 text-white rounded-full hover:bg-red-600 transition-colors"
+                aria-label={`Remove photo ${index + 1}`}
               >
-                <Trash2 className="w-4 h-4" />
+                <X className="w-4 h-4" />
               </button>
             </div>
             {index === 0 && (
@@ -118,6 +144,7 @@ export function PhotoVideoUpload({
         {/* Add Photo Button */}
         {canAddMorePhotos && (
           <button
+            type="button"
             onClick={() => imageInputRef.current?.click()}
             className="aspect-square rounded-2xl border-2 border-dashed border-gray-300 hover:border-pink-500 transition-colors flex flex-col items-center justify-center gap-2 text-gray-400 hover:text-pink-500"
           >
@@ -126,6 +153,19 @@ export function PhotoVideoUpload({
           </button>
         )}
       </div>
+      <AnimatePresence>
+        {previewImage && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 p-4"
+            onClick={() => setPreviewImage(null)}
+          >
+            <img src={previewImage} alt="Preview" className="max-h-full max-w-full rounded-2xl object-contain" />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <input
         ref={imageInputRef}
@@ -142,7 +182,7 @@ export function PhotoVideoUpload({
           <div>
             <h3 className="text-sm font-medium text-gray-900">Video (Optional)</h3>
             <p className="text-xs text-gray-500">
-              Add a short video to stand out (Max 50MB)
+              Add a short video to stand out (Max 20MB)
             </p>
           </div>
         </div>
@@ -155,14 +195,17 @@ export function PhotoVideoUpload({
               className="w-full h-full object-cover"
             />
             <button
+              type="button"
               onClick={removeVideo}
-              className="absolute top-2 right-2 p-2 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+              className="absolute top-2 right-2 p-2 bg-black/70 text-white rounded-full hover:bg-red-600 transition-colors"
+              aria-label="Remove video"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
         ) : (
           <button
+            type="button"
             onClick={() => videoInputRef.current?.click()}
             className="w-full aspect-video rounded-2xl border-2 border-dashed border-gray-300 hover:border-pink-500 transition-colors flex flex-col items-center justify-center gap-2 text-gray-400 hover:text-pink-500"
           >

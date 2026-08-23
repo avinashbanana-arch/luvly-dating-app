@@ -1,6 +1,7 @@
 require("dotenv").config();
 const express = require("express");
 const http = require("http");
+const path = require("path");
 const cors = require("cors");
 const helmet = require("helmet");
 const { Server } = require("socket.io");
@@ -48,6 +49,22 @@ app.use(cors({ origin: corsOrigin }));
 app.post("/api/payment/webhook", express.raw({ type: "application/json" }), razorpayWebhook);
 
 app.use(express.json());
+
+// Keep photos uploaded by older versions of the app reachable.  New uploads
+// use Cloudinary, but existing database records can still contain /uploads
+// URLs and must remain visible in Profile, Discover, and Likes.
+app.use(
+  "/uploads",
+  express.static(path.join(__dirname, "../uploads"), {
+    // The Capacitor app runs from capacitor://localhost, so legacy profile
+    // images are cross-origin from the API host. Helmet's default
+    // same-origin policy would otherwise block the browser from displaying
+    // an otherwise valid image.
+    setHeaders(res) {
+      res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    },
+  })
+);
 
 app.get("/health", (req, res) => res.json({ status: "ok" }));
 

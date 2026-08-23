@@ -40,12 +40,34 @@ function getPlansForCountry(country) {
 
 function hasActiveAccess(user) {
   if (!user) return false;
+  // A trial is valid only through its recorded end date. Existing paid
+  // members without a trial end retain access through the legacy flag.
+  if (user.trialEndsAt && new Date(user.trialEndsAt).getTime() > Date.now()) return true;
+  if (Array.isArray(user.subscriptions)) {
+    return user.subscriptions.some((subscription) =>
+      subscription.status === "ACTIVE" &&
+      new Date(subscription.startDate).getTime() <= Date.now() &&
+      new Date(subscription.endDate).getTime() > Date.now()
+    );
+  }
   return !!user.isPremium;
+}
+
+function getSubscriptionStatus(user) {
+  if (!user?.isPremium) return "NOT_STARTED";
+  if (user.trialEndsAt && new Date(user.trialEndsAt).getTime() > Date.now()) return "TRIAL_ACTIVE";
+  if (Array.isArray(user.subscriptions) && user.subscriptions.some((subscription) =>
+    subscription.status === "ACTIVE" &&
+    new Date(subscription.startDate).getTime() <= Date.now() &&
+    new Date(subscription.endDate).getTime() > Date.now()
+  )) return "PAID";
+  return "EXPIRED";
 }
 
 module.exports = {
   getPlansForCountry,
   getPricingRegion,
   hasActiveAccess,
+  getSubscriptionStatus,
   normalizeCountry,
 };

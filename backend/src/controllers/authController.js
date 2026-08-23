@@ -4,12 +4,26 @@ const { sendOtp, verifyOtp } = require("../utils/otp");
 const { signToken } = require("../utils/jwt");
 const { t } = require("../utils/i18n");
 
-/** Basic Indian phone number normalizer: ensures it has +91 prefix. */
+const PHONE_COUNTRY_RULES = [
+  { dialCode: "971", min: 9, max: 9 },
+  { dialCode: "354", min: 7, max: 7 },
+  { dialCode: "91", min: 10, max: 10 },
+  { dialCode: "44", min: 10, max: 10 },
+  { dialCode: "1", min: 10, max: 10 },
+];
+
+/** Normalizes supported E.164 phone numbers and rejects impossible lengths. */
 function normalizePhone(phone) {
   const digits = String(phone).replace(/\D/g, "");
-  if (digits.length === 10) return `+91${digits}`;
-  if (digits.startsWith("91") && digits.length === 12) return `+${digits}`;
-  if (String(phone).startsWith("+")) return phone;
+  if (!digits) return "";
+  if (digits.length === 10 && !String(phone).trim().startsWith("+")) return `+91${digits}`;
+
+  const rule = PHONE_COUNTRY_RULES.find((country) => digits.startsWith(country.dialCode));
+  if (!rule) return digits.length >= 8 && digits.length <= 15 ? `+${digits}` : "";
+
+  const localDigits = digits.slice(rule.dialCode.length);
+  if (localDigits.length < rule.min || localDigits.length > rule.max) return "";
+
   return `+${digits}`;
 }
 
@@ -21,7 +35,22 @@ function normalizeEmail(email) {
 async function requestOtp(req, res) {
   try {
     const phone = normalizePhone(req.body.phone);
-    if (!phone) return res.status(400).json({ error: "Phone number is required" });
+    if (!phone) return res.status(400).json({ error: "Enter a valid phone number" });
+    const mode = ["login", "signup", "continue"].includes(req.body.mode) ? req.body.mode : "login";
+    const user = await prisma.user.findUnique({ where: { phone } });
+
+    if (!user && mode === "login") {
+      return res.status(404).json({
+        error: "No account found with this phone number. Please sign up first, then log in.",
+        code: "USER_NOT_REGISTERED",
+      });
+    }
+    if (user && mode === "signup") {
+      return res.status(409).json({
+        error: "An account with this phone number already exists. Please log in instead.",
+        code: "USER_ALREADY_EXISTS",
+      });
+    }
 
     const result = await sendOtp(phone);
     return res.json({ message: t("otp_sent"), phone, delivery: result.delivery });
@@ -58,13 +87,27 @@ async function verifyOtpAndLogin(req, res) {
   try {
     const phone = normalizePhone(req.body.phone);
     const { code } = req.body;
+    if (!phone) return res.status(400).json({ error: "Enter a valid phone number" });
 
     const isValid = await verifyOtp(phone, code);
     if (!isValid) return res.status(400).json({ error: t("otp_invalid") });
 
     let user = await prisma.user.findUnique({ where: { phone } });
+    const mode = ["login", "signup", "continue"].includes(req.body.mode) ? req.body.mode : "login";
     let isNewUser = false;
 
+    if (!user && mode === "login") {
+      return res.status(404).json({
+        error: "No account found with this phone number. Please sign up first, then log in.",
+        code: "USER_NOT_REGISTERED",
+      });
+    }
+    if (user && mode === "signup") {
+      return res.status(409).json({
+        error: "An account with this phone number already exists. Please log in instead.",
+        code: "USER_ALREADY_EXISTS",
+      });
+    }
     if (!user) {
       user = await prisma.user.create({ data: { phone } });
       isNewUser = true;
@@ -86,6 +129,7 @@ async function verifyEmailOtpAndLogin(req, res) {
   try {
     const email = normalizeEmail(req.body.email);
     const { code, password } = req.body;
+    const mode = req.body.mode === "signup" ? "signup" : "login";
     if (!email || !email.includes("@")) {
       return res.status(400).json({ error: "Valid email is required" });
     }
@@ -96,6 +140,18 @@ async function verifyEmailOtpAndLogin(req, res) {
     let user = await prisma.user.findUnique({ where: { email } });
     let isNewUser = false;
 
+    if (!user && mode === "login") {
+      return res.status(404).json({
+        error: "No account found with this email. Please sign up first, then log in.",
+        code: "USER_NOT_REGISTERED",
+      });
+    }
+    if (user && mode === "signup") {
+      return res.status(409).json({
+        error: "An account with this email already exists. Please log in instead.",
+        code: "USER_ALREADY_EXISTS",
+      });
+    }
     if (!user) {
       const passwordHash = password && password.length >= 6 ? await bcrypt.hash(password, 10) : undefined;
       user = await prisma.user.create({ data: { email, passwordHash } });

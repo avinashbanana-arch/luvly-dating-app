@@ -9,12 +9,14 @@ const {
   deletePhoto,
   submitVerificationSelfie,
   reviewVerification,
+  deleteMyAccount,
 } = require("../controllers/profileController");
 
 const router = express.Router();
 
 router.get("/me", requireAuth, getMyProfile);
 router.put("/me", requireAuth, updateMyProfile);
+router.delete("/me", requireAuth, deleteMyAccount);
 router.put("/interests", requireAuth, setInterests);
 
 router.post("/photos", requireAuth, upload.single("photo"), uploadPhoto);

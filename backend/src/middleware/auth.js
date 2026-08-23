@@ -9,7 +9,10 @@ async function requireAuth(req, res, next) {
     if (!token) return res.status(401).json({ error: "Missing auth token" });
 
     const payload = verifyToken(token);
-    const user = await prisma.user.findUnique({ where: { id: payload.sub } });
+    const user = await prisma.user.findUnique({
+      where: { id: payload.sub },
+      include: { subscriptions: { where: { status: "ACTIVE" }, orderBy: { endDate: "desc" } } },
+    });
     if (!user) return res.status(401).json({ error: "Invalid token" });
 
     req.user = user;

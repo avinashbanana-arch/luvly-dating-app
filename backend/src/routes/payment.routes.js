@@ -4,6 +4,8 @@ const {
   getPlans,
   createOrder,
   verifyPayment,
+  createCommunityOrder,
+  verifyCommunityPayment,
   startTrialSubscription,
   syncRevenueCatSubscription,
   getMySubscription,
@@ -14,6 +16,8 @@ const router = express.Router();
 router.get("/plans", getPlans);
 router.post("/create-order", requireAuth, createOrder);
 router.post("/verify", requireAuth, verifyPayment);
+router.post("/community/create-order", requireAuth, createCommunityOrder);
+router.post("/community/verify", requireAuth, verifyCommunityPayment);
 router.post("/start-trial", requireAuth, startTrialSubscription);
 router.post("/revenuecat-sync", requireAuth, syncRevenueCatSubscription);
 router.get("/my-subscription", requireAuth, getMySubscription);

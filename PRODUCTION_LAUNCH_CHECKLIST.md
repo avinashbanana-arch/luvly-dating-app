@@ -39,6 +39,8 @@ Backend:
 
 ```env
 DATABASE_URL=your_hosted_postgres_url
+# Optional but recommended: Neon direct (non-pooler) URL used for migrations
+DIRECT_URL=your_neon_direct_postgres_url
 JWT_SECRET=your_long_random_secret
 CLIENT_URL=https://your-frontend-domain.com
 CLOUDINARY_CLOUD_NAME=...
@@ -59,9 +61,18 @@ Backend database:
 
 ```powershell
 cd C:\Dating_app\backend
-npx.cmd prisma migrate deploy
+npm.cmd run prisma:migrate:deploy
 npx.cmd prisma generate
 ```
+
+## Railway backend deployment
+
+1. Create a Railway service from this repository and set its **root directory** to `backend`.
+2. Set the config-as-code file path to `/backend/railway.json`.
+3. Copy the required backend variables above into Railway. Use Neon’s pooled URL for `DATABASE_URL`, its direct URL for `DIRECT_URL`, and set `CLIENT_URL` to every permitted frontend origin, comma-separated.
+4. Railway runs `prisma migrate deploy` before each release, using the direct Neon endpoint for schema changes, then checks `GET /health` before routing traffic to the new deployment.
+
+Keep backend secrets out of the frontend environment. The frontend only needs the public API/socket URLs and RevenueCat public SDK keys.
 
 Android:
 

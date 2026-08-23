@@ -1,15 +1,25 @@
 const prisma = require("../config/db");
 const { rankCandidates } = require("../utils/matching");
 const { sendPushNotification } = require("../utils/push");
+const { publicProfileSelect, toPublicProfile } = require("../utils/publicProfile");
 
-const FREE_DAILY_LIKE_LIMIT = 20;
+const FREE_DAILY_LIKE_LIMIT = 50;
+
+async function getDailyLikeSummary(userId) {
+  const since = new Date();
+  since.setHours(0, 0, 0, 0);
+  const count = await prisma.like.count({
+    where: { fromUserId: userId, createdAt: { gte: since } },
+  });
+  return { count, limit: FREE_DAILY_LIKE_LIMIT };
+}
 
 /** GET /api/match/discover - ranked feed of candidates for swiping */
 async function getDiscoverFeed(req, res) {
   const country = req.query.country ? String(req.query.country).toUpperCase() : "";
   const me = await prisma.user.findUnique({
     where: { id: req.user.id },
-    include: { interests: true, photos: true },
+    include: { interests: { include: { interest: true } }, photos: true },
   });
 
   const [alreadyLiked, blockedByMe, blockedMe] = await Promise.all([
@@ -30,14 +40,14 @@ async function getDiscoverFeed(req, res) {
       id: { notIn: [...excludeIds] },
       ...(country ? { country } : {}),
     },
-    include: { interests: true, photos: true },
+    include: { interests: { include: { interest: true } }, photos: true },
     take: 200, // pull a reasonable pool, then rank in-memory
   });
 
   const ranked = rankCandidates(me, candidates);
 
   return res.json({
-    candidates: ranked.slice(0, 30).map((r) => ({ ...r.user, matchScore: r.score })),
+    candidates: ranked.slice(0, 30).map((r) => ({ ...toPublicProfile(r.user), matchScore: r.score })),
   });
 }
 
@@ -48,18 +58,17 @@ async function likeUser(req, res) {
     return res.status(400).json({ error: "You can't like yourself" });
   }
 
-  // Free-tier daily like limit (premium users are unlimited)
-  if (!req.user.isPremium) {
-    const since = new Date();
-    since.setHours(0, 0, 0, 0);
-    const likesToday = await prisma.like.count({
-      where: { fromUserId: req.user.id, createdAt: { gte: since } },
-    });
-    if (likesToday >= FREE_DAILY_LIKE_LIMIT) {
+  const existingLike = await prisma.like.findUnique({
+    where: { fromUserId_toUserId: { fromUserId: req.user.id, toUserId } },
+  });
+  const dailyLikesBefore = await getDailyLikeSummary(req.user.id);
+
+  // A repeated like updates the existing record and must not consume another
+  // daily slot. Only a new like is subject to the free-tier limit.
+  if (!req.user.isPremium && !existingLike && dailyLikesBefore.count >= FREE_DAILY_LIKE_LIMIT) {
       return res.status(403).json({
         error: `Daily like limit (${FREE_DAILY_LIKE_LIMIT}) reached. Upgrade to Premium for unlimited likes.`,
       });
-    }
   }
 
   const like = await prisma.like.upsert({
@@ -92,17 +101,33 @@ async function likeUser(req, res) {
     }
   }
 
-  return res.json({ like, match });
+  const dailyLikes = await getDailyLikeSummary(req.user.id);
+  return res.json({ like, match, dailyLikes });
+}
+
+/** GET /api/match/daily-likes - authoritative current user's daily usage */
+async function getDailyLikes(req, res) {
+  return res.json({ dailyLikes: await getDailyLikeSummary(req.user.id) });
 }
 
 /** GET /api/match/likes-received - "who liked me" (premium feature) */
 async function getLikesReceived(req, res) {
   const likes = await prisma.like.findMany({
     where: { toUserId: req.user.id },
-    include: { fromUser: { include: { photos: true } } },
+    include: { fromUser: { select: publicProfileSelect } },
     orderBy: { createdAt: "desc" },
   });
-  return res.json({ likes });
+  return res.json({ likes: likes.map((like) => ({ ...like, fromUser: toPublicProfile(like.fromUser) })) });
+}
+
+/** GET /api/match/likes-sent - profiles liked by the current user */
+async function getLikesSent(req, res) {
+  const likes = await prisma.like.findMany({
+    where: { fromUserId: req.user.id },
+    include: { toUser: { select: publicProfileSelect } },
+    orderBy: { createdAt: "desc" },
+  });
+  return res.json({ likes: likes.map((like) => ({ ...like, toUser: toPublicProfile(like.toUser) })) });
 }
 
 /** GET /api/match/matches - all mutual matches for the current user */
@@ -110,19 +135,19 @@ async function getMyMatches(req, res) {
   const matches = await prisma.match.findMany({
     where: { OR: [{ userAId: req.user.id }, { userBId: req.user.id }] },
     include: {
-      userA: { include: { photos: true } },
-      userB: { include: { photos: true } },
+      userA: { select: publicProfileSelect },
+      userB: { select: publicProfileSelect },
     },
     orderBy: { createdAt: "desc" },
   });
 
   const normalized = matches.map((m) => ({
     matchId: m.id,
-    otherUser: m.userAId === req.user.id ? m.userB : m.userA,
+    otherUser: toPublicProfile(m.userAId === req.user.id ? m.userB : m.userA),
     createdAt: m.createdAt,
   }));
 
   return res.json({ matches: normalized });
 }
 
-module.exports = { getDiscoverFeed, likeUser, getLikesReceived, getMyMatches };
+module.exports = { getDiscoverFeed, likeUser, getDailyLikes, getLikesReceived, getLikesSent, getMyMatches };

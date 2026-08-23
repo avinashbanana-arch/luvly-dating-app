@@ -60,15 +60,15 @@ export function SettingsPage({
   ];
 
   return (
-    <div className="h-full bg-white overflow-y-auto">
-      <div className="p-6 border-b flex items-center gap-4">
+    <div className="h-full bg-white text-gray-900 overflow-y-auto">
+      <div className="p-6 border-b flex items-center gap-4 bg-white text-gray-900">
         <button
           onClick={onBack}
           className="p-2 hover:bg-gray-100 rounded-full transition-colors"
         >
-          <ArrowLeft className="w-6 h-6" />
+          <ArrowLeft className="w-6 h-6 text-gray-900" />
         </button>
-        <h1 className="text-2xl">Settings</h1>
+        <h1 className="text-2xl text-gray-900">Settings</h1>
       </div>
 
       <div className="p-6">

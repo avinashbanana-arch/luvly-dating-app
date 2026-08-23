@@ -7,8 +7,8 @@ android {
         applicationId "com.luvly.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode 6
+        versionName "1.0.5"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -43,6 +43,15 @@ dependencies {
 }
 
 apply from: 'capacitor.build.gradle'
+
+// The local Android toolchain uses JDK 20. Capacitor regenerates its build
+// file during every sync with Java 21, so keep the compatible target here.
+android {
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_20
+        targetCompatibility JavaVersion.VERSION_20
+    }
+}
 
 try {
     def servicesJSON = file('google-services.json')

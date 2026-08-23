@@ -13,6 +13,7 @@ interface PremiumModalProps {
 
 type Plan = "monthly" | "yearly";
 type PayStep = "plans" | "payment" | "success";
+type DisplayPlans = Record<Plan, { price: string; period: string; label: string; save: string }>;
 
 export function PremiumModal({ isOpen, country, required = false, onClose, onUpgrade }: PremiumModalProps) {
   const [selectedPlan, setSelectedPlan] = useState<Plan>("yearly");
@@ -21,11 +22,11 @@ export function PremiumModal({ isOpen, country, required = false, onClose, onUpg
   const [expiry, setExpiry] = useState("");
   const [cvv, setCvv] = useState("");
   const [name, setName] = useState("");
+  const [paymentError, setPaymentError] = useState("");
   const [processing, setProcessing] = useState(false);
-  const [plans, setPlans] = useState({
-    monthly: { price: "$10", period: "/month", label: "Monthly", save: "" },
-    yearly: { price: "$100", period: "/year", label: "Yearly", save: "Best value" },
-  });
+  const [plans, setPlans] = useState<DisplayPlans | null>(null);
+  const [plansLoading, setPlansLoading] = useState(false);
+  const [plansError, setPlansError] = useState("");
 
   const features = [
     { icon: Eye, title: "See All Likes", description: "View everyone who liked you instantly" },
@@ -42,8 +43,13 @@ export function PremiumModal({ isOpen, country, required = false, onClose, onUpg
 
   useEffect(() => {
     if (!isOpen) return;
+    let cancelled = false;
+    setPlans(null);
+    setPlansLoading(true);
+    setPlansError("");
     getPaymentPlans(country)
       .then((data) => {
+        if (cancelled) return;
         setPlans({
           monthly: {
             price: formatPlanPrice(data.plans.MONTHLY),
@@ -59,7 +65,15 @@ export function PremiumModal({ isOpen, country, required = false, onClose, onUpg
           },
         });
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) setPlansError("Couldn't load the final price. Please try again.");
+      })
+      .finally(() => {
+        if (!cancelled) setPlansLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [country, isOpen]);
 
   const formatCard = (val: string) =>
@@ -70,24 +84,46 @@ export function PremiumModal({ isOpen, country, required = false, onClose, onUpg
     return digits.length > 2 ? `${digits.slice(0, 2)}/${digits.slice(2)}` : digits;
   };
 
-  const handlePay = async () => {
-    if (!name || cardNumber.replace(/\s/g, "").length < 16 || expiry.length < 5 || cvv.length < 3) {
-      alert("Please fill in all payment details.");
-      return;
+  // Single source of truth for expiry validation, used for both the
+  // real-time field feedback and the pre-submit check, so the two can't
+  // drift out of sync. Accepts MM/YY and MM/YYYY. A card is valid through
+  // the last day of its expiry month, so equal month/year counts as valid —
+  // only strictly earlier than the current month/year is rejected.
+  const getExpiryError = (value: string, referenceDate: Date = new Date()) => {
+    const [monthText = "", yearText = ""] = value.split("/");
+    if (!/^\d{1,2}$/.test(monthText)) return "Please enter a valid month (1-12).";
+    const month = Number(monthText);
+    if (!Number.isInteger(month) || month < 1 || month > 12) {
+      return "Please enter a valid month (1-12).";
     }
+    // Don't judge expiry until a full year has been entered — "07" alone
+    // isn't wrong yet, it's just incomplete.
+    if (!/^\d{2}$/.test(yearText) && !/^\d{4}$/.test(yearText)) {
+      return "";
+    }
+    const year = yearText.length === 2 ? 2000 + Number(yearText) : Number(yearText);
+    const currentYear = referenceDate.getFullYear();
+    const currentMonth = referenceDate.getMonth() + 1; // getMonth() is 0-indexed
+    const isExpired = year < currentYear || (year === currentYear && month < currentMonth);
+    if (isExpired) {
+      return "Card expiry date cannot be earlier than the current month and year.";
+    }
+    return "";
+  };
+
+  const handlePay = async () => {
+    setPaymentError("");
     setProcessing(true);
-    // Simulate payment processing
-    await new Promise((r) => setTimeout(r, 2000));
     try {
       await onUpgrade(selectedPlan === "yearly" ? "YEARLY" : "MONTHLY");
       setProcessing(false);
       setStep("success");
       if (!required) onClose();
       setStep("plans");
-      setCardNumber(""); setExpiry(""); setCvv(""); setName("");
+      setPaymentError("");
     } catch (err) {
       setProcessing(false);
-      alert(err instanceof Error ? err.message : "Could not start subscription.");
+      setPaymentError(err instanceof Error ? err.message : "Could not start subscription.");
     }
   };
 
@@ -104,18 +140,18 @@ export function PremiumModal({ isOpen, country, required = false, onClose, onUpg
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4"
           onClick={handleClose}
         >
           <motion.div
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.9, opacity: 0 }}
-            className="bg-white rounded-3xl w-full max-w-md max-h-[92vh] overflow-hidden flex flex-col"
+            className="bg-[#080912] text-white border border-[#d89075]/45 rounded-3xl w-full max-w-md max-h-[92vh] overflow-hidden flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
-            <div className="relative bg-gradient-to-r from-pink-500 to-red-500 p-8 text-white text-center flex-shrink-0">
+            <div className="relative bg-gradient-to-r from-[#f01c66] to-[#c9064f] p-8 text-white text-center flex-shrink-0">
               {!required && (
                 <button
                   onClick={handleClose}
@@ -128,7 +164,7 @@ export function PremiumModal({ isOpen, country, required = false, onClose, onUpg
                 <Star className="w-8 h-8 fill-current" />
               </div>
               <h2 className="text-3xl mb-1">Luvly Premium</h2>
-              <p className="text-pink-100 text-sm">Start with 3 days free, then continue on your plan</p>
+              <p className="text-white/75 text-sm">Start with 3 days free, then continue on your plan</p>
             </div>
 
             {/* Step: Plans */}
@@ -143,12 +179,12 @@ export function PremiumModal({ isOpen, country, required = false, onClose, onUpg
                       transition={{ delay: i * 0.08 }}
                       className="flex items-start gap-4"
                     >
-                      <div className="w-11 h-11 bg-pink-100 rounded-full flex items-center justify-center flex-shrink-0">
-                        <f.icon className="w-5 h-5 text-pink-500" />
+                      <div className="w-11 h-11 bg-[#ff3f7f]/12 border border-[#ff3f7f]/25 rounded-full flex items-center justify-center flex-shrink-0">
+                        <f.icon className="w-5 h-5 text-[#ff7aa6]" />
                       </div>
                       <div className="flex-1">
                         <h3 className="font-semibold">{f.title}</h3>
-                        <p className="text-sm text-gray-500">{f.description}</p>
+                        <p className="text-sm text-white/55">{f.description}</p>
                       </div>
                       <Check className="w-5 h-5 text-green-500 flex-shrink-0 mt-1" />
                     </motion.div>
@@ -156,18 +192,24 @@ export function PremiumModal({ isOpen, country, required = false, onClose, onUpg
                 </div>
 
                 <div className="px-6 pb-6 space-y-3">
-                  {(["yearly", "monthly"] as Plan[]).map((plan) => (
+                  {plansLoading && (["yearly", "monthly"] as Plan[]).map((plan) => (
+                    <div key={plan} className="w-full rounded-2xl border-2 border-white/10 p-4" aria-label="Loading price">
+                      <div className="h-7 w-28 animate-pulse rounded bg-white/15" />
+                      <div className="mt-3 h-3 w-48 animate-pulse rounded bg-white/10" />
+                    </div>
+                  ))}
+                  {!plansLoading && plans && (["yearly", "monthly"] as Plan[]).map((plan) => (
                     <button
                       key={plan}
                       onClick={() => setSelectedPlan(plan)}
                       className={`w-full rounded-2xl p-4 border-2 text-left transition-all ${
-                        selectedPlan === plan ? "border-pink-500 bg-pink-50" : "border-gray-200"
+                        selectedPlan === plan ? "border-[#ff3f7f] bg-[#ff3f7f]/10" : "border-white/10"
                       }`}
                     >
                       <div className="flex items-center justify-between">
                         <div>
-                          <span className="text-2xl font-bold text-gray-800">{plans[plan].price}</span>
-                          <span className="text-gray-500 text-sm">{plans[plan].period}</span>
+                          <span className="text-2xl font-bold text-[#ffe1ae]">{plans[plan].price}</span>
+                          <span className="text-white/50 text-sm">{plans[plan].period}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           {plans[plan].save && (
@@ -176,25 +218,32 @@ export function PremiumModal({ isOpen, country, required = false, onClose, onUpg
                             </span>
                           )}
                           <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                            selectedPlan === plan ? "border-pink-500 bg-pink-500" : "border-gray-300"
+                            selectedPlan === plan ? "border-[#ff3f7f] bg-[#ff3f7f]" : "border-white/30"
                           }`}>
                             {selectedPlan === plan && <div className="w-2 h-2 bg-white rounded-full" />}
                           </div>
                         </div>
                       </div>
-                      <p className="text-xs text-gray-500 mt-1">
+                      <p className="text-xs text-white/50 mt-1">
                         {plan === "yearly" ? "3-day trial, then yearly billing" : "3-day trial, then monthly billing"}
                       </p>
                     </button>
                   ))}
 
+                  {plansError && (
+                    <p className="rounded-xl border border-[#ff9caf]/40 bg-[#ff9caf]/10 p-3 text-center text-sm text-[#ff9caf]">
+                      {plansError}
+                    </p>
+                  )}
+
                   <button
-                    onClick={() => setStep("payment")}
-                    className="w-full py-4 bg-gradient-to-r from-pink-500 to-red-500 text-white rounded-full text-lg font-semibold hover:shadow-lg transition-shadow"
+                    onClick={handlePay}
+                    disabled={!plans || plansLoading || processing}
+                    className="w-full py-4 bg-gradient-to-r from-[#f01c66] to-[#c9064f] text-white rounded-2xl text-lg font-semibold hover:shadow-lg transition-shadow disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    Continue to Payment
+                    {processing ? "Starting your trial..." : "Start 3-day trial"}
                   </button>
-                  <p className="text-xs text-gray-400 text-center">Secured by 256-bit SSL encryption</p>
+                  <p className="text-xs text-white/45 text-center">Paid Android subscriptions are completed securely through Google Play.</p>
                 </div>
               </div>
             )}
@@ -215,10 +264,10 @@ export function PremiumModal({ isOpen, country, required = false, onClose, onUpg
                   <div className="flex justify-between items-center">
                     <div>
                       <p className="font-semibold text-gray-800">Luvly Premium</p>
-                      <p className="text-sm text-gray-500">{plans[selectedPlan].label} plan</p>
+                      <p className="text-sm text-gray-500">{plans?.[selectedPlan].label || "Premium"} plan</p>
                     </div>
                     <p className="text-xl font-bold text-pink-600">
-                      {plans[selectedPlan].price}
+                      {plans?.[selectedPlan].price || "—"}
                     </p>
                   </div>
                 </div>
@@ -251,10 +300,22 @@ export function PremiumModal({ isOpen, country, required = false, onClose, onUpg
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Expiry</label>
-                      <input
+                    <input
                         type="text"
                         value={expiry}
-                        onChange={(e) => setExpiry(formatExpiry(e.target.value))}
+                        onChange={(e) => {
+                          const formatted = formatExpiry(e.target.value);
+                          setExpiry(formatted);
+                          const error = getExpiryError(formatted);
+                          if (error) {
+                            setPaymentError(error);
+                          } else if (
+                            paymentError === "Please enter a valid month (1-12)." ||
+                            paymentError === "Card expiry date cannot be earlier than the current month and year."
+                          ) {
+                            setPaymentError("");
+                          }
+                        }}
                         placeholder="MM/YY"
                         className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-pink-400"
                       />
@@ -271,9 +332,13 @@ export function PremiumModal({ isOpen, country, required = false, onClose, onUpg
                     </div>
                   </div>
 
+                  {paymentError && (
+                    <p className="text-sm text-red-500">{paymentError}</p>
+                  )}
+
                   <button
                     onClick={handlePay}
-                    disabled={processing}
+                    disabled={processing || !!getExpiryError(expiry)}
                     className="w-full py-4 bg-gradient-to-r from-pink-500 to-red-500 text-white rounded-full font-semibold text-lg disabled:opacity-70 hover:shadow-lg transition-all"
                   >
                     {processing ? (

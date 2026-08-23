@@ -5,6 +5,19 @@ const { t } = require("../utils/i18n");
 const { getPlansForCountry, normalizeCountry } = require("../utils/pricing");
 
 let razorpay;
+const COMMUNITY_JOIN_AMOUNT_MINOR = 100;
+const COMMUNITY_JOIN_CURRENCY = "INR";
+const COMMUNITY_IDS = new Set([
+  "music",
+  "travelling",
+  "gym",
+  "books",
+  "science",
+  "dance",
+  "movies",
+  "sports",
+  "astrology",
+]);
 
 function getRazorpayConfigError(requiredKeys) {
   const missing = requiredKeys.filter((key) => !process.env[key]);
@@ -108,7 +121,99 @@ async function verifyPayment(req, res) {
     data: { isPremium: true, trialStartedAt, trialEndsAt },
   });
 
-  return res.json({ message: t("subscription_active"), subscription });
+  const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+  return res.json({
+    message: t("subscription_active"),
+    subscription,
+    user: { ...user, subscriptionStatus: "TRIAL_ACTIVE" },
+  });
+}
+
+/** POST /api/payment/community/create-order  { communityId } */
+async function createCommunityOrder(req, res) {
+  const { communityId } = req.body;
+  if (!COMMUNITY_IDS.has(communityId)) {
+    return res.status(400).json({ error: "Invalid community" });
+  }
+
+  try {
+    const order = await getRazorpayClient().orders.create({
+      amount: COMMUNITY_JOIN_AMOUNT_MINOR,
+      currency: COMMUNITY_JOIN_CURRENCY,
+      receipt: `community_${req.user.id}_${Date.now()}`.slice(0, 40),
+      notes: { userId: req.user.id, communityId, purpose: "community_join" },
+    });
+
+    return res.json({ order, keyId: process.env.RAZORPAY_KEY_ID });
+  } catch (err) {
+    return res.status(500).json({ error: "Failed to create community payment", details: err.message });
+  }
+}
+
+/**
+ * POST /api/payment/community/verify
+ * { communityId, razorpay_order_id, razorpay_payment_id, razorpay_signature }
+ */
+async function verifyCommunityPayment(req, res) {
+  const { communityId, razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+  if (!COMMUNITY_IDS.has(communityId)) {
+    return res.status(400).json({ error: "Invalid community" });
+  }
+
+  const configError = getRazorpayConfigError(["RAZORPAY_KEY_SECRET"]);
+  if (configError) return res.status(500).json({ error: configError });
+
+  const expectedSignature = crypto
+    .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+    .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+    .digest("hex");
+
+  if (expectedSignature !== razorpay_signature) {
+    return res.status(400).json({ error: "Payment signature verification failed" });
+  }
+
+  let order;
+  let payment;
+  try {
+    const client = getRazorpayClient();
+    [order, payment] = await Promise.all([
+      client.orders.fetch(razorpay_order_id),
+      client.payments.fetch(razorpay_payment_id),
+    ]);
+  } catch (err) {
+    return res.status(502).json({ error: "Could not verify payment with Razorpay", details: err.message });
+  }
+
+  if (
+    order.amount !== COMMUNITY_JOIN_AMOUNT_MINOR ||
+    order.currency !== COMMUNITY_JOIN_CURRENCY ||
+    order.notes?.userId !== req.user.id ||
+    order.notes?.communityId !== communityId ||
+    payment.order_id !== razorpay_order_id ||
+    payment.amount !== COMMUNITY_JOIN_AMOUNT_MINOR ||
+    payment.currency !== COMMUNITY_JOIN_CURRENCY ||
+    !["captured", "authorized"].includes(payment.status)
+  ) {
+    return res.status(400).json({ error: "Community payment details did not match" });
+  }
+
+  const currentUser = await prisma.user.findUnique({
+    where: { id: req.user.id },
+    select: { communities: true },
+  });
+  const communities = currentUser?.communities || [];
+  const user = communities.includes(communityId)
+    ? await prisma.user.findUnique({ where: { id: req.user.id } })
+    : await prisma.user.update({
+        where: { id: req.user.id },
+        data: { communities: { push: communityId } },
+      });
+
+  return res.json({
+    message: "Community joined",
+    communityId,
+    user,
+  });
 }
 
 /**
@@ -147,7 +252,7 @@ async function startTrialSubscription(req, res) {
     data: { isPremium: true, trialStartedAt, trialEndsAt },
   });
 
-  return res.json({ message: "Trial started", subscription, user });
+  return res.json({ message: "Trial started", subscription, user: { ...user, subscriptionStatus: "TRIAL_ACTIVE" } });
 }
 
 async function syncRevenueCatSubscription(req, res) {
@@ -184,7 +289,7 @@ async function syncRevenueCatSubscription(req, res) {
     data: { isPremium: true, trialStartedAt, trialEndsAt },
   });
 
-  return res.json({ message: "Subscription verified", user });
+  return res.json({ message: "Subscription verified", user: { ...user, subscriptionStatus: "PAID" } });
 }
 
 /**
@@ -232,6 +337,8 @@ module.exports = {
   getPlans,
   createOrder,
   verifyPayment,
+  createCommunityOrder,
+  verifyCommunityPayment,
   startTrialSubscription,
   syncRevenueCatSubscription,
   razorpayWebhook,

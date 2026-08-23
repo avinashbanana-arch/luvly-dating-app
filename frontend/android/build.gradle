@@ -24,6 +24,18 @@ allprojects {
     }
 }
 
+// Preferences ships with a Java 21 compile target, while this app's Android
+// toolchain is Java 20. Its implementation uses no Java 21-only APIs, so keep
+// the plugin aligned with the app's supported target.
+gradle.afterProject { project ->
+    if (project.name == "capacitor-preferences") {
+        project.android.compileOptions {
+            sourceCompatibility JavaVersion.VERSION_20
+            targetCompatibility JavaVersion.VERSION_20
+        }
+    }
+}
+
 task clean(type: Delete) {
     delete rootProject.buildDir
 }

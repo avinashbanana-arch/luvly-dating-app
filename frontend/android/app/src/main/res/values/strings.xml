@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">LuvLy</string>
-    <string name="title_activity_main">LuvLy</string>
+    <string name="app_name">Luvly</string>
+    <string name="title_activity_main">Luvly</string>
     <string name="package_name">com.luvly.app</string>
     <string name="custom_url_scheme">com.luvly.app</string>
 </resources>

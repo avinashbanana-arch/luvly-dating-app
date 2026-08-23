@@ -1,15 +1,21 @@
-import { useState } from "react";
-import { Users, Lock, ChevronRight, ArrowLeft, Star, Music, Plane, Dumbbell, Book, Atom, Film, Trophy, CheckCircle } from "lucide-react";
-import { motion } from "motion/react";
+import { useEffect, useState } from "react";
+import { PublicProfileDetails } from "./PublicProfileDetails";
+import { Users, Lock, ChevronRight, ArrowLeft, Star, Music, Plane, Dumbbell, Book, Atom, Film, Trophy, CheckCircle, Plus, Heart, X } from "lucide-react";
 import { Profile } from "./SwipeCard";
 
 interface CommunityViewProps {
   isPremium: boolean;
   onUpgradeToPremium: () => void;
   onProfileClick: (profile: Profile) => void;
+  onLikeProfile: (profile: Profile) => Promise<boolean> | boolean;
+  userId: string;
+  joinedCommunities: string[];
+  onCommunityJoined: (communities: string[]) => void;
   userInterests: string[];
   userZodiac: string;
 }
+
+const COMMUNITY_DISMISSED_PROFILES_KEY = "luvly_community_dismissed_profiles";
 
 const communities = [
   { id: "music", name: "Music", icon: Music, color: "bg-purple-100 text-purple-600" },
@@ -37,7 +43,6 @@ const zodiacSigns = [
   { value: "Aquarius", symbol: "♒", dates: "Jan 20 - Feb 18" },
   { value: "Pisces", symbol: "♓", dates: "Feb 19 - Mar 20" },
 ];
-
 // Mock profiles for the community view
 const mockCommunityProfiles: Profile[] = [
   {
@@ -92,13 +97,92 @@ const mockCommunityProfiles: Profile[] = [
   },
 ];
 
-export function CommunityView({ isPremium, onUpgradeToPremium, onProfileClick, userInterests, userZodiac }: CommunityViewProps) {
+function getDismissedProfilesCacheKey(userId: string) {
+  return `${COMMUNITY_DISMISSED_PROFILES_KEY}_${userId || "anonymous"}`;
+}
+
+function readDismissedProfilesCache(userId: string): Record<string, string[]> {
+  try {
+    const raw = localStorage.getItem(getDismissedProfilesCacheKey(userId));
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeDismissedProfilesCache(userId: string, dismissedProfiles: Record<string, string[]>) {
+  try {
+    localStorage.setItem(getDismissedProfilesCacheKey(userId), JSON.stringify(dismissedProfiles));
+  } catch {
+    // Ignore storage errors; in-memory state still keeps the current session correct.
+  }
+}
+
+function getCommunityFeedKey(communityId: string | null, zodiac: string | null) {
+  if (zodiac) return `astrology:${zodiac}`;
+  return communityId || "";
+}
+
+export function CommunityView({
+  isPremium,
+  onUpgradeToPremium,
+  onProfileClick,
+  onLikeProfile,
+  userId,
+  joinedCommunities: persistedJoinedCommunities,
+  onCommunityJoined,
+  userInterests,
+  userZodiac,
+}: CommunityViewProps) {
   const [selectedCommunity, setSelectedCommunity] = useState<string | null>(null);
   const [selectedZodiac, setSelectedZodiac] = useState<string | null>(null);
+  const [joinedCommunities, setJoinedCommunities] = useState<string[]>(persistedJoinedCommunities);
+  const [joiningCommunityId, setJoiningCommunityId] = useState<string | null>(null);
+  const [selectedProfile, setSelectedProfile] = useState<Profile | null>(null);
+  const [selectedProfileImageIndex, setSelectedProfileImageIndex] = useState(0);
+  const [dismissedProfiles, setDismissedProfiles] = useState<Record<string, string[]>>(() =>
+    readDismissedProfilesCache(userId)
+  );
+
+  useEffect(() => {
+    setJoinedCommunities(persistedJoinedCommunities.slice(0, 1));
+  }, [persistedJoinedCommunities]);
+
+  useEffect(() => {
+    setDismissedProfiles(readDismissedProfilesCache(userId));
+  }, [userId]);
+
+  const joinCommunity = (id: string) => {
+    if (!isPremium) {
+      onUpgradeToPremium();
+      return;
+    }
+    if (joinedCommunities.includes(id)) {
+      setSelectedCommunity(id);
+      return;
+    }
+    // Membership is included with the user's subscription. A person may have
+    // exactly one active community; joining another switches membership.
+    const nextCommunities = [id];
+    setJoinedCommunities(nextCommunities);
+    onCommunityJoined(nextCommunities);
+    setSelectedCommunity(id);
+  };
+
+  const openProfile = (profile: Profile) => {
+    setSelectedProfile(profile);
+    setSelectedProfileImageIndex(0);
+  };
 
   const handleCommunityClick = (id: string) => {
     if (!isPremium) {
       onUpgradeToPremium();
+      return;
+    }
+    if (!isMember(id)) {
+      joinCommunity(id);
       return;
     }
     
@@ -122,14 +206,33 @@ export function CommunityView({ isPremium, onUpgradeToPremium, onProfileClick, u
     }
   };
 
-  const isMember = (communityName: string, communityId: string) => {
-    if (communityId === "astrology") return true; // Everyone has a zodiac sign now
-    // Check if the community name or mapped interest is in userInterests
-    return userInterests.includes(communityName) || userInterests.includes("Travel") && communityName === "Travelling";
+  const isMember = (communityId: string) => {
+    return joinedCommunities.includes(communityId);
+  };
+
+  const hideProfileFromCurrentFeed = (profileId: string) => {
+    const feedKey = getCommunityFeedKey(selectedCommunity, selectedZodiac);
+    if (!feedKey) return;
+
+    setDismissedProfiles((current) => {
+      const currentFeedProfiles = current[feedKey] || [];
+      const next = {
+        ...current,
+        [feedKey]: currentFeedProfiles.includes(profileId)
+          ? currentFeedProfiles
+          : [...currentFeedProfiles, profileId],
+      };
+      writeDismissedProfilesCache(userId, next);
+      return next;
+    });
   };
 
   const renderContent = () => {
     if (selectedZodiac) {
+      const feedKey = getCommunityFeedKey(selectedCommunity, selectedZodiac);
+      const visibleProfiles = mockCommunityProfiles.filter(
+        (profile) => !dismissedProfiles[feedKey]?.includes(profile.id)
+      );
       return (
         <div className="p-4">
           <div className="flex items-center gap-2 mb-4">
@@ -144,10 +247,10 @@ export function CommunityView({ isPremium, onUpgradeToPremium, onProfileClick, u
             )}
           </div>
           <div className="grid grid-cols-2 gap-4">
-            {mockCommunityProfiles.map((profile) => (
+            {visibleProfiles.map((profile) => (
               <div
                 key={profile.id}
-                onClick={() => onProfileClick(profile)}
+                onClick={() => openProfile(profile)}
                 className="bg-white rounded-2xl overflow-hidden shadow-md cursor-pointer hover:shadow-lg transition-shadow"
               >
                 <div className="h-40 relative">
@@ -203,14 +306,20 @@ export function CommunityView({ isPremium, onUpgradeToPremium, onProfileClick, u
 
     if (selectedCommunity) {
       const community = communities.find((c) => c.id === selectedCommunity);
+      const feedKey = getCommunityFeedKey(selectedCommunity, null);
+      const visibleProfiles = mockCommunityProfiles.filter(
+        (profile) => !dismissedProfiles[feedKey]?.includes(profile.id)
+      );
       return (
         <div className="p-4">
-          <h2 className="text-2xl font-bold mb-4">{community?.name} Enthusiasts</h2>
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-2xl font-bold">{community?.name} Enthusiasts</h2>
+          </div>
           <div className="grid grid-cols-2 gap-4">
-            {mockCommunityProfiles.map((profile) => (
+            {visibleProfiles.map((profile) => (
               <div
                 key={profile.id}
-                onClick={() => onProfileClick(profile)}
+                onClick={() => openProfile(profile)}
                 className="bg-white rounded-2xl overflow-hidden shadow-md cursor-pointer hover:shadow-lg transition-shadow"
               >
                 <div className="h-40 relative">
@@ -257,7 +366,7 @@ export function CommunityView({ isPremium, onUpgradeToPremium, onProfileClick, u
         )}
 
         {communities.map((community) => {
-            const joined = isMember(community.name, community.id);
+            const joined = isMember(community.id);
             return (
               <button
                 key={community.id}
@@ -287,6 +396,27 @@ export function CommunityView({ isPremium, onUpgradeToPremium, onProfileClick, u
                 </div>
                 <div className="flex items-center gap-2">
                   {!isPremium && <Lock className="w-4 h-4 text-gray-400" />}
+                  {joined ? (
+                    <span className="text-sm font-semibold text-pink-600">Joined</span>
+                  ) : (
+                    <button
+                      type="button"
+                      role="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        joinCommunity(community.id);
+                      }}
+                      disabled={joiningCommunityId === community.id}
+                      className="flex h-9 w-9 items-center justify-center rounded-full border border-pink-200 text-pink-500 disabled:cursor-not-allowed disabled:opacity-60"
+                      aria-label={`Join ${community.name}`}
+                    >
+                      {joiningCommunityId === community.id ? (
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-pink-200 border-t-pink-500" />
+                      ) : (
+                        <Plus className="h-5 w-5" />
+                      )}
+                    </button>
+                  )}
                   <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-gray-500 transition-colors" />
                 </div>
               </button>
@@ -297,19 +427,19 @@ export function CommunityView({ isPremium, onUpgradeToPremium, onProfileClick, u
   };
 
   return (
-    <div className="h-full flex flex-col bg-gray-50">
+    <div className="h-full flex flex-col bg-[#080912] text-white">
       {/* Header */}
-      <div className="p-6 bg-white shadow-sm flex items-center gap-4 sticky top-0 z-10">
+      <div className="p-6 bg-[#080912] border-b border-white/10 flex items-center gap-4 sticky top-0 z-10">
         {(selectedCommunity || selectedZodiac) && (
-          <button onClick={handleBack} className="p-2 -ml-2 hover:bg-gray-100 rounded-full">
-            <ArrowLeft className="w-6 h-6 text-gray-600" />
+          <button onClick={handleBack} className="p-2 -ml-2 hover:bg-white/10 rounded-full">
+            <ArrowLeft className="w-6 h-6 text-[#ffd9aa]" />
           </button>
         )}
         <div>
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-pink-500 to-red-500 bg-clip-text text-transparent">
+          <h1 className="font-serif text-3xl text-[#ffe1ae]">
             Community
           </h1>
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-white/50">
             {selectedZodiac
               ? "Find your zodiac match"
               : selectedCommunity
@@ -323,6 +453,68 @@ export function CommunityView({ isPremium, onUpgradeToPremium, onProfileClick, u
       <div className="flex-1 overflow-y-auto">
         {renderContent()}
       </div>
+      {selectedProfile && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70" onClick={() => setSelectedProfile(null)}>
+          <div
+                className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-3xl border border-[#d89075]/45 bg-[#080912] text-white"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <img
+              src={selectedProfile.images[selectedProfileImageIndex] || selectedProfile.images[0]}
+              alt={selectedProfile.name}
+              className="h-96 w-full object-cover"
+            />
+            <div className="space-y-4 p-6">
+              {selectedProfile.images.length > 1 && (
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {selectedProfile.images.map((image, index) => (
+                    <button
+                      key={`${image}-${index}`}
+                      type="button"
+                      onClick={() => setSelectedProfileImageIndex(index)}
+                      className={`h-16 w-16 flex-shrink-0 overflow-hidden rounded-xl border-2 ${
+                        index === selectedProfileImageIndex ? "border-[#ff3f7f]" : "border-white/15"
+                      }`}
+                      aria-label={`Show photo ${index + 1}`}
+                    >
+                      <img src={image} alt={`${selectedProfile.name} photo ${index + 1}`} className="h-full w-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div>
+                <h2 className="text-3xl font-semibold">{selectedProfile.name}, {selectedProfile.age}</h2>
+                <p className="text-sm text-white/50">{selectedProfile.location}</p>
+              </div>
+              <PublicProfileDetails profile={selectedProfile} />
+              <div className="flex gap-4 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    hideProfileFromCurrentFeed(selectedProfile.id);
+                    setSelectedProfile(null);
+                  }}
+                  className="flex-1 rounded-2xl border border-[#d89075]/45 py-3 text-white/60"
+                >
+                  <X className="mx-auto h-6 w-6" />
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const liked = await onLikeProfile(selectedProfile);
+                    if (!liked) return;
+                    hideProfileFromCurrentFeed(selectedProfile.id);
+                    setSelectedProfile(null);
+                  }}
+                  className="flex-1 rounded-2xl bg-gradient-to-r from-[#f01c66] to-[#c9064f] py-3 text-white"
+                >
+                  <Heart className="mx-auto h-6 w-6 fill-current" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

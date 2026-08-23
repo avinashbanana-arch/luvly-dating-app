@@ -55,7 +55,8 @@ function initChatSocket(io) {
           data: { matchId, senderId: socket.user.id, content: content.trim() },
         });
 
-        io.to(`match:${matchId}`).emit("new_message", message);
+        socket.emit("new_message", message);
+        socket.to(`match:${matchId}`).emit("new_message", message);
 
         // Push-notify the other participant if they're offline.
         const otherUserId = match.userAId === socket.user.id ? match.userBId : match.userAId;

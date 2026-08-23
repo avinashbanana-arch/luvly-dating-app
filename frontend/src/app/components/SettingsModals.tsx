@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { X, Eye, EyeOff, AlertTriangle } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -41,15 +41,13 @@ export function ChangePasswordModal({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
-          onClick={onClose}
+          className="fixed inset-0 z-[70] min-h-[100dvh] overflow-y-auto bg-white text-gray-900"
         >
           <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.9, opacity: 0 }}
-            className="bg-white rounded-3xl w-full max-w-md p-6"
-            onClick={(e) => e.stopPropagation()}
+            initial={{ x: "100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "100%" }}
+            className="min-h-[100dvh] w-full bg-white p-6"
           >
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl">Change Password</h2>
@@ -129,7 +127,7 @@ export function ChangePasswordModal({
             <div className="flex gap-3 mt-6">
               <button
                 onClick={onClose}
-                className="flex-1 py-3 border-2 border-gray-300 rounded-full hover:bg-gray-50 transition-colors"
+                className="flex-1 py-3 border-2 border-gray-300 rounded-full text-gray-800 hover:bg-gray-50 transition-colors"
               >
                 Cancel
               </button>
@@ -151,25 +149,43 @@ export function ChangePasswordModal({
 interface ChangeEmailModalProps {
   isOpen: boolean;
   currentEmail: string;
+  isLoading?: boolean;
   onClose: () => void;
-  onSave: (newEmail: string) => void;
+  onSave: (newEmail: string) => Promise<void> | void;
 }
 
 export function ChangeEmailModal({
   isOpen,
   currentEmail,
+  isLoading = false,
   onClose,
   onSave,
 }: ChangeEmailModalProps) {
-  const [newEmail, setNewEmail] = useState(currentEmail);
+  const [newEmail, setNewEmail] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
-  const handleSave = () => {
+  useEffect(() => {
+    if (!isOpen) return;
+    setNewEmail("");
+    setError("");
+  }, [isOpen]);
+
+  const handleSave = async () => {
+    setError("");
     if (!newEmail.includes("@")) {
-      alert("Please enter a valid email!");
+      setError("Please enter a valid email.");
       return;
     }
-    onSave(newEmail);
-    onClose();
+    setSaving(true);
+    try {
+      await onSave(newEmail.trim());
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update your email. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -179,15 +195,13 @@ export function ChangeEmailModal({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
-          onClick={onClose}
+          className="fixed inset-0 z-[70] min-h-[100dvh] overflow-y-auto bg-white text-gray-900"
         >
           <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.9, opacity: 0 }}
-            className="bg-white rounded-3xl w-full max-w-md p-6"
-            onClick={(e) => e.stopPropagation()}
+            initial={{ x: "100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "100%" }}
+            className="min-h-[100dvh] w-full bg-white p-6"
           >
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl">Change Email</h2>
@@ -205,9 +219,10 @@ export function ChangeEmailModal({
               </label>
               <input
                 type="email"
-                value={currentEmail}
-                disabled
+                value={isLoading ? "" : currentEmail}
+                readOnly
                 className="w-full px-4 py-3 border border-gray-300 rounded-full bg-gray-100 text-gray-500 mb-4"
+                placeholder={isLoading ? "Loading current email…" : "No email available"}
               />
 
               <label className="text-sm text-gray-600 mb-2 block">
@@ -220,20 +235,23 @@ export function ChangeEmailModal({
                 className="w-full px-4 py-3 border border-gray-300 rounded-full focus:outline-none focus:border-pink-500"
                 placeholder="Enter new email"
               />
+              {error && <p className="mt-2 text-sm text-red-500">{error}</p>}
             </div>
 
             <div className="flex gap-3 mt-6">
               <button
                 onClick={onClose}
-                className="flex-1 py-3 border-2 border-gray-300 rounded-full hover:bg-gray-50 transition-colors"
+                disabled={saving}
+                className="flex-1 py-3 border-2 border-gray-300 rounded-full text-gray-800 hover:bg-gray-50 transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSave}
+                disabled={isLoading || saving}
                 className="flex-1 py-3 bg-gradient-to-r from-pink-500 to-red-500 text-white rounded-full hover:shadow-lg transition-shadow"
               >
-                Save
+                {saving ? "Saving..." : "Save"}
               </button>
             </div>
           </motion.div>
@@ -275,15 +293,13 @@ export function ChangePhoneModal({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
-          onClick={onClose}
+          className="fixed inset-0 z-[70] min-h-[100dvh] overflow-y-auto bg-white text-gray-900"
         >
           <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.9, opacity: 0 }}
-            className="bg-white rounded-3xl w-full max-w-md p-6"
-            onClick={(e) => e.stopPropagation()}
+            initial={{ x: "100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "100%" }}
+            className="min-h-[100dvh] w-full bg-white p-6"
           >
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl">Change Phone Number</h2>
@@ -321,7 +337,7 @@ export function ChangePhoneModal({
             <div className="flex gap-3 mt-6">
               <button
                 onClick={onClose}
-                className="flex-1 py-3 border-2 border-gray-300 rounded-full hover:bg-gray-50 transition-colors"
+                className="flex-1 py-3 border-2 border-gray-300 rounded-full text-gray-800 hover:bg-gray-50 transition-colors"
               >
                 Cancel
               </button>
@@ -378,7 +394,7 @@ export function ChangeUsernameModal({
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.9, opacity: 0 }}
-            className="bg-white rounded-3xl w-full max-w-md p-6"
+            className="bg-white text-gray-900 rounded-3xl w-full max-w-md p-6"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-6">
@@ -417,7 +433,7 @@ export function ChangeUsernameModal({
             <div className="flex gap-3 mt-6">
               <button
                 onClick={onClose}
-                className="flex-1 py-3 border-2 border-gray-300 rounded-full hover:bg-gray-50 transition-colors"
+                className="flex-1 py-3 border-2 border-gray-300 rounded-full text-gray-800 hover:bg-gray-50 transition-colors"
               >
                 Cancel
               </button>
@@ -449,15 +465,13 @@ export function TermsModal({ isOpen, onClose }: TermsModalProps) {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
-          onClick={onClose}
+          className="fixed inset-0 z-[70] min-h-[100dvh] overflow-y-auto bg-white text-gray-900"
         >
           <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.9, opacity: 0 }}
-            className="bg-white rounded-3xl w-full max-w-md max-h-[80vh] overflow-hidden flex flex-col"
-            onClick={(e) => e.stopPropagation()}
+            initial={{ x: "100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "100%" }}
+            className="flex min-h-[100dvh] w-full flex-col bg-white"
           >
             <div className="p-6 border-b flex items-center justify-between">
               <h2 className="text-xl">Terms & Conditions</h2>
@@ -575,15 +589,13 @@ export function DeleteAccountModal({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
-          onClick={onClose}
+          className="fixed inset-0 z-[70] min-h-[100dvh] overflow-y-auto bg-white text-gray-900"
         >
           <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.9, opacity: 0 }}
-            className="bg-white rounded-3xl w-full max-w-md p-6"
-            onClick={(e) => e.stopPropagation()}
+            initial={{ x: "100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "100%" }}
+            className="min-h-[100dvh] w-full bg-white p-6"
           >
             <div className="flex flex-col items-center mb-6">
               <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
@@ -604,7 +616,7 @@ export function DeleteAccountModal({
                 type="text"
                 value={confirmText}
                 onChange={(e) => setConfirmText(e.target.value)}
-                className="w-full px-4 py-3 border border-red-300 rounded-full focus:outline-none focus:border-red-500"
+                className="w-full px-4 py-3 border border-red-300 rounded-full text-gray-900 focus:outline-none focus:border-red-500"
                 placeholder="DELETE"
               />
             </div>
@@ -612,7 +624,7 @@ export function DeleteAccountModal({
             <div className="flex gap-3">
               <button
                 onClick={onClose}
-                className="flex-1 py-3 border-2 border-gray-300 rounded-full hover:bg-gray-50 transition-colors"
+                className="flex-1 py-3 border-2 border-gray-300 rounded-full text-gray-800 hover:bg-gray-50 transition-colors"
               >
                 Cancel
               </button>
