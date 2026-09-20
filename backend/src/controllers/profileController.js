@@ -214,34 +214,39 @@ async function setInterests(req, res) {
 
 /** POST /api/profile/photos  (multipart/form-data, field "photo") */
 async function uploadPhoto(req, res) {
-  if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+  try {
+    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
 
-  const isVideo = req.file.mimetype.startsWith("video");
-  if (!isVideo) {
-    const existingPhotos = await prisma.photo.count({ where: { userId: req.user.id } });
-    if (existingPhotos >= 5) {
-      return res.status(400).json({ error: "You can upload a maximum of 5 photos." });
+    const isVideo = req.file.mimetype.startsWith("video");
+    if (!isVideo) {
+      const existingPhotos = await prisma.photo.count({ where: { userId: req.user.id } });
+      if (existingPhotos >= 5) {
+        return res.status(400).json({ error: "You can upload a maximum of 5 photos." });
+      }
     }
-  }
-  const result = await uploadBufferToCloudinary(
-    req.file.buffer,
-    `dating-app/${req.user.id}`,
-    isVideo ? "video" : "image"
-  );
+    const result = await uploadBufferToCloudinary(
+      req.file.buffer,
+      `dating-app/${req.user.id}`,
+      isVideo ? "video" : "image"
+    );
 
-  if (isVideo) {
-    const user = await prisma.user.update({
-      where: { id: req.user.id },
-      data: { videoUrl: result.secure_url },
+    if (isVideo) {
+      const user = await prisma.user.update({
+        where: { id: req.user.id },
+        data: { videoUrl: result.secure_url },
+      });
+      return res.json({ videoUrl: result.secure_url, user });
+    }
+
+    const photo = await prisma.photo.create({
+      data: { userId: req.user.id, url: result.secure_url },
     });
-    return res.json({ videoUrl: result.secure_url, user });
+
+    return res.json({ photo });
+  } catch (err) {
+    console.error("[uploadPhoto]", err);
+    return res.status(502).json({ error: "Photo upload failed. Please try again later." });
   }
-
-  const photo = await prisma.photo.create({
-    data: { userId: req.user.id, url: result.secure_url },
-  });
-
-  return res.json({ photo });
 }
 
 /** DELETE /api/profile/photos/:photoId */
@@ -262,20 +267,28 @@ async function deletePhoto(req, res) {
  * auto-compare the selfie against the user's profile photos.
  */
 async function submitVerificationSelfie(req, res) {
-  if (!req.file) return res.status(400).json({ error: "No selfie uploaded" });
+  try {
+    if (!req.file) return res.status(400).json({ error: "No selfie uploaded" });
 
-  const result = await uploadBufferToCloudinary(
-    req.file.buffer,
-    `dating-app/${req.user.id}/verification`,
-    "image"
-  );
+    const result = await uploadBufferToCloudinary(
+      req.file.buffer,
+      `dating-app/${req.user.id}/verification`,
+      "image"
+    );
 
-  const user = await prisma.user.update({
-    where: { id: req.user.id },
-    data: { verificationSelfieUrl: result.secure_url, verificationStatus: "PENDING" },
-  });
+    const user = await prisma.user.update({
+      where: { id: req.user.id },
+      data: { verificationSelfieUrl: result.secure_url, verificationStatus: "PENDING" },
+    });
 
-  return res.json({ message: t("verification_pending"), user });
+    return res.json({ message: t("verification_pending"), user });
+  } catch (err) {
+    // Keep the process alive when Cloudinary rejects an upload; Railway logs
+    // retain the provider-specific error while the client gets a safe retry
+    // message.
+    console.error("[submitVerificationSelfie]", err);
+    return res.status(502).json({ error: "Selfie upload failed. Please try again later." });
+  }
 }
 
 /**

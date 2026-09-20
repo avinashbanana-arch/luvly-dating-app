@@ -240,12 +240,28 @@ export const deletePhoto = (photoId: string) =>
 export const submitVerificationSelfie = async (file: File) => {
   const token = getToken();
   const form = new FormData();
-  form.append("selfie", file, file.name);
-  const res = await fetch(`${API_URL}/profile/verify-selfie`, {
-    method: "POST",
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-    body: form,
-  });
+  // Camera originals can exceed the API's multipart limit. Use the same
+  // resize/compression path as profile photos before uploading the selfie.
+  const uploadFile = await preparePhotoUpload(file);
+  form.append("selfie", uploadFile, uploadFile.name);
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 60000);
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/profile/verify-selfie`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      body: form,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    const message = err instanceof DOMException && err.name === "AbortError"
+      ? "Selfie upload timed out. Please try again with a smaller photo or a stronger connection."
+      : "Couldn't upload the selfie. Please check your connection and try again.";
+    throw new ApiError(message, 0);
+  } finally {
+    window.clearTimeout(timeout);
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError(data.error || "Selfie verification upload failed", res.status);
   return data;

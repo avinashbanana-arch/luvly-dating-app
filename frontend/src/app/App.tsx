@@ -697,6 +697,7 @@ export default function App() {
   const handleProfileSetupComplete = async (data: any) => {
     let created = false;
     let submissionFailed = false;
+    let mediaUploadFailed = false;
     const requiredPhotoFiles = data.photoFiles || [];
 
     // Finishing setup must take the user to the required access screen
@@ -789,7 +790,14 @@ export default function App() {
       // Video upload is independent of the gallery-photo requirement below —
       // a signup that hasn't finished its 3 required photos yet shouldn't
       // also lose a video the user actually provided.
-      if (data.videoFile && !savedProfile.user?.videoUrl) await uploadPhoto(data.videoFile);
+      if (data.videoFile && !savedProfile.user?.videoUrl) {
+        try {
+          await uploadPhoto(data.videoFile);
+        } catch (videoError) {
+          mediaUploadFailed = true;
+          console.error("Profile video upload failed", videoError);
+        }
+      }
 
       if (requiredPhotoFiles.length < 3) {
         setToast("Profile saved. Add at least 3 photos when you edit your profile.");
@@ -804,10 +812,31 @@ export default function App() {
       // On retry, skip files that have already reached the server.
       const uploadedPhotoCount = savedProfile.user?.photos?.length || 0;
       for (const file of requiredPhotoFiles.slice(uploadedPhotoCount, 5)) {
-        await uploadPhoto(file);
+        try {
+          await uploadPhoto(file);
+        } catch (photoError) {
+          mediaUploadFailed = true;
+          console.error("Profile photo upload failed", photoError);
+          break;
+        }
       }
-      if (data.selfieFile) await submitVerificationSelfie(data.selfieFile);
-      setToast("Profile created successfully.");
+      // Identity verification is optional. A transient media-provider failure
+      // must not strand a fully saved profile on the last onboarding screen.
+      // The user can retry this upload later from Edit Profile.
+      let selfieUploadFailed = false;
+      if (data.selfieFile) {
+        try {
+          await submitVerificationSelfie(data.selfieFile);
+        } catch (selfieError) {
+          selfieUploadFailed = true;
+          console.error("Selfie verification upload failed", selfieError);
+        }
+      }
+      setToast(
+        mediaUploadFailed || selfieUploadFailed
+          ? "Profile created. Some media could not be uploaded; try again later from Edit Profile."
+          : "Profile created successfully."
+      );
     } catch (err) {
       submissionFailed = true;
       const message =
@@ -835,7 +864,10 @@ export default function App() {
           setPhone(meRes.user.phone || "");
           setProfile((prev) => ({ ...prev, ...mapUserToProfile(meRes.user) } as any));
         }
-        if (!meRes?.user || !isProfileComplete(meRes.user)) {
+        // Media uploads use a third-party provider and must never leave a
+        // newly created account stuck in onboarding. The profile screen will
+        // continue to prompt the user to add any photos that failed.
+        if (!meRes?.user || (!mediaUploadFailed && !isProfileComplete(meRes.user))) {
           // Do not replace a concrete API/upload error with this final
           // completeness check. That used to make failed photo uploads look
           // like an unexplained profile-save problem.
