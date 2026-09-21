@@ -31,26 +31,19 @@ export function PhotoVideoUpload({
   const [previewImage, setPreviewImage] = useState<string | null>(null);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (files) {
-      if (images.length + files.length > maxPhotos) {
+    const selectedFiles = Array.from(e.target.files || []).filter((file) => file.size > 0);
+    if (selectedFiles.length) {
+      if (images.length + selectedFiles.length > maxPhotos) {
         setError(`You can upload a maximum of ${maxPhotos} photos.`);
         e.target.value = "";
         return;
       }
       setError("");
-      onImageFilesAdded?.(Array.from(files));
-      const newImages: string[] = [];
-      Array.from(files).forEach((file) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          newImages.push(reader.result as string);
-          if (newImages.length === files.length) {
-            onImagesChange([...images, ...newImages]);
-          }
-        };
-        reader.readAsDataURL(file);
-      });
+      // Android WebView can delay or drop FileReader completion events for
+      // gallery content URIs. Object URLs are immediate and keep the exact
+      // selected File available for the later multipart upload.
+      onImageFilesAdded?.(selectedFiles);
+      onImagesChange([...images, ...selectedFiles.map((file) => URL.createObjectURL(file))]);
     }
     e.target.value = "";
   };
