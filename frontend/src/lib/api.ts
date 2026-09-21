@@ -171,7 +171,9 @@ export const setInterests = (interestNames: string[]) =>
 async function preparePhotoUpload(file: File): Promise<File> {
   // Phone gallery photos are often 5–20 MB. Resize them before sending so
   // completing a profile is reliable even on a cellular connection.
-  if (!file.type.startsWith("image/") || file.size <= 1_500_000) return file;
+  // Keep the fallback database storage and cellular uploads small. Modern
+  // phone photos are usually much larger than this threshold.
+  if (!file.type.startsWith("image/") || file.size <= 900_000) return file;
 
   try {
     const imageUrl = URL.createObjectURL(file);
@@ -183,7 +185,7 @@ async function preparePhotoUpload(file: File): Promise<File> {
     });
     URL.revokeObjectURL(imageUrl);
 
-    const maxDimension = 1600;
+    const maxDimension = 1280;
     const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
@@ -193,7 +195,7 @@ async function preparePhotoUpload(file: File): Promise<File> {
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
 
     const compressed = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, "image/jpeg", 0.82)
+      canvas.toBlob(resolve, "image/jpeg", 0.76)
     );
     if (!compressed || compressed.size >= file.size) return file;
     return new File([compressed], file.name.replace(/\.[^.]+$/, ".jpg"), { type: "image/jpeg" });

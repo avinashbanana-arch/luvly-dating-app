@@ -224,11 +224,25 @@ async function uploadPhoto(req, res) {
         return res.status(400).json({ error: "You can upload a maximum of 5 photos." });
       }
     }
-    const result = await uploadBufferToCloudinary(
-      req.file.buffer,
-      `dating-app/${req.user.id}`,
-      isVideo ? "video" : "image"
-    );
+    let result;
+    try {
+      result = await uploadBufferToCloudinary(
+        req.file.buffer,
+        `dating-app/${req.user.id}`,
+        isVideo ? "video" : "image"
+      );
+    } catch (uploadError) {
+      // A missing/broken Cloudinary configuration must not make a user's
+      // profile photos disappear. Small images are stored directly in the
+      // database as a temporary resilient fallback; video remains Cloudinary-
+      // only because embedding a large video in the database is unsafe.
+      if (isVideo) throw uploadError;
+      if (req.file.size > 2 * 1024 * 1024) throw uploadError;
+      console.error("[uploadPhoto] Cloudinary unavailable; using image fallback", uploadError.message);
+      result = {
+        secure_url: `data:${req.file.mimetype || "image/jpeg"};base64,${req.file.buffer.toString("base64")}`,
+      };
+    }
 
     if (isVideo) {
       const user = await prisma.user.update({
