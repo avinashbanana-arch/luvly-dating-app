@@ -228,9 +228,7 @@ function isProfileComplete(user: any) {
       user?.city &&
       user?.country &&
       user?.gender &&
-      user?.lookingFor &&
-      Array.isArray(user?.photos) &&
-      user.photos.length >= 3
+      user?.lookingFor
   );
 }
 
