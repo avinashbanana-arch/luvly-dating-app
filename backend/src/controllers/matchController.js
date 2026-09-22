@@ -53,45 +53,62 @@ async function getDiscoverFeed(req, res) {
 
 /** POST /api/match/like  { toUserId, isSuperLike? } */
 async function likeUser(req, res) {
-  const { toUserId, isSuperLike } = req.body;
-  if (toUserId === req.user.id) {
-    return res.status(400).json({ error: "You can't like yourself" });
-  }
+  try {
+    const toUserId = typeof req.body?.toUserId === "string" ? req.body.toUserId.trim() : "";
+    const isSuperLike = !!req.body?.isSuperLike;
 
-  const existingLike = await prisma.like.findUnique({
-    where: { fromUserId_toUserId: { fromUserId: req.user.id, toUserId } },
-  });
-  const dailyLikesBefore = await getDailyLikeSummary(req.user.id);
+    if (!toUserId) {
+      return res.status(400).json({ error: "Choose a profile to like" });
+    }
+    if (toUserId === req.user.id) {
+      return res.status(400).json({ error: "You can't like yourself" });
+    }
 
-  // A repeated like updates the existing record and must not consume another
-  // daily slot. Only a new like is subject to the free-tier limit.
-  if (!req.user.isPremium && !existingLike && dailyLikesBefore.count >= FREE_DAILY_LIKE_LIMIT) {
+    // Check this before writing the Like. A stale card (for example, after
+    // somebody deletes their account) used to hit a foreign-key error that
+    // Express 4 did not turn into an HTTP response, so Android showed a
+    // misleading "Couldn't reach the server" message.
+    const otherUser = await prisma.user.findUnique({
+      where: { id: toUserId },
+      select: { id: true, fcmToken: true },
+    });
+    if (!otherUser) {
+      return res.status(404).json({ error: "This profile is no longer available. Refresh Likes and try another profile." });
+    }
+
+    const existingLike = await prisma.like.findUnique({
+      where: { fromUserId_toUserId: { fromUserId: req.user.id, toUserId } },
+    });
+    const dailyLikesBefore = await getDailyLikeSummary(req.user.id);
+
+    // A repeated like updates the existing record and must not consume another
+    // daily slot. Only a new like is subject to the free-tier limit.
+    if (!req.user.isPremium && !existingLike && dailyLikesBefore.count >= FREE_DAILY_LIKE_LIMIT) {
       return res.status(403).json({
         error: `Daily like limit (${FREE_DAILY_LIKE_LIMIT}) reached. Upgrade to Premium for unlimited likes.`,
       });
-  }
+    }
 
-  const like = await prisma.like.upsert({
-    where: { fromUserId_toUserId: { fromUserId: req.user.id, toUserId } },
-    update: { isSuperLike: !!isSuperLike },
-    create: { fromUserId: req.user.id, toUserId, isSuperLike: !!isSuperLike },
-  });
-
-  // Check if the other user already liked us back -> it's a match!
-  const reciprocal = await prisma.like.findUnique({
-    where: { fromUserId_toUserId: { fromUserId: toUserId, toUserId: req.user.id } },
-  });
-
-  let match = null;
-  if (reciprocal) {
-    const [userAId, userBId] = [req.user.id, toUserId].sort();
-    match = await prisma.match.upsert({
-      where: { userAId_userBId: { userAId, userBId } },
-      update: {},
-      create: { userAId, userBId },
+    const like = await prisma.like.upsert({
+      where: { fromUserId_toUserId: { fromUserId: req.user.id, toUserId } },
+      update: { isSuperLike },
+      create: { fromUserId: req.user.id, toUserId, isSuperLike },
     });
 
-    const otherUser = await prisma.user.findUnique({ where: { id: toUserId } });
+    // Check if the other user already liked us back -> it's a match!
+    const reciprocal = await prisma.like.findUnique({
+      where: { fromUserId_toUserId: { fromUserId: toUserId, toUserId: req.user.id } },
+    });
+
+    let match = null;
+    if (reciprocal) {
+      const [userAId, userBId] = [req.user.id, toUserId].sort();
+      match = await prisma.match.upsert({
+        where: { userAId_userBId: { userAId, userBId } },
+        update: {},
+        create: { userAId, userBId },
+      });
+
     if (otherUser?.fcmToken) {
       await sendPushNotification(
         otherUser.fcmToken,
@@ -99,10 +116,16 @@ async function likeUser(req, res) {
         `You and ${req.user.name || "someone"} liked each other`
       );
     }
-  }
+    }
 
-  const dailyLikes = await getDailyLikeSummary(req.user.id);
-  return res.json({ like, match, dailyLikes });
+    const dailyLikes = await getDailyLikeSummary(req.user.id);
+    return res.json({ like, match, dailyLikes });
+  } catch (err) {
+    // Never drop a mobile request on a Prisma or notification failure.
+    // The app can then show a useful error and the user can retry safely.
+    console.error("Failed to save like", err);
+    return res.status(500).json({ error: "Couldn't save your like right now. Please try again." });
+  }
 }
 
 /** GET /api/match/daily-likes - authoritative current user's daily usage */
