@@ -273,6 +273,9 @@ export const submitVerificationSelfie = async (file: File) => {
 export const getDiscoverFeed = (country?: string) =>
   request(`/match/discover${country ? `?country=${encodeURIComponent(country)}` : ""}`);
 
+export const getCommunityFeed = (communityId: string, zodiac?: string) =>
+  request(`/match/community/${encodeURIComponent(communityId)}${zodiac ? `?zodiac=${encodeURIComponent(zodiac)}` : ""}`);
+
 export const likeUser = (toUserId: string, isSuperLike = false) =>
   request("/match/like", { method: "POST", body: JSON.stringify({ toUserId, isSuperLike }) });
 

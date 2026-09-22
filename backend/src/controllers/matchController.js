@@ -4,6 +4,9 @@ const { sendPushNotification } = require("../utils/push");
 const { publicProfileSelect, toPublicProfile } = require("../utils/publicProfile");
 
 const FREE_DAILY_LIKE_LIMIT = 50;
+const COMMUNITY_IDS = new Set([
+  "music", "travelling", "gym", "books", "science", "dance", "movies", "sports", "astrology",
+]);
 
 async function getDailyLikeSummary(userId) {
   const since = new Date();
@@ -49,6 +52,43 @@ async function getDiscoverFeed(req, res) {
   return res.json({
     candidates: ranked.slice(0, 30).map((r) => ({ ...toPublicProfile(r.user), matchScore: r.score })),
   });
+}
+
+/** GET /api/match/community/:communityId?zodiac=Leo - real members of a community */
+async function getCommunityFeed(req, res) {
+  try {
+    const communityId = String(req.params.communityId || "").trim().toLowerCase();
+    const zodiac = String(req.query.zodiac || "").trim();
+    if (!COMMUNITY_IDS.has(communityId)) {
+      return res.status(400).json({ error: "Unknown community" });
+    }
+
+    const [alreadyLiked, blockedByMe, blockedMe] = await Promise.all([
+      prisma.like.findMany({ where: { fromUserId: req.user.id }, select: { toUserId: true } }),
+      prisma.block.findMany({ where: { blockerId: req.user.id }, select: { blockedId: true } }),
+      prisma.block.findMany({ where: { blockedId: req.user.id }, select: { blockerId: true } }),
+    ]);
+    const excludedIds = [
+      req.user.id,
+      ...alreadyLiked.map((like) => like.toUserId),
+      ...blockedByMe.map((block) => block.blockedId),
+      ...blockedMe.map((block) => block.blockerId),
+    ];
+    const candidates = await prisma.user.findMany({
+      where: {
+        id: { notIn: excludedIds },
+        communities: { has: communityId },
+        ...(communityId === "astrology" && zodiac ? { zodiacSign: zodiac } : {}),
+      },
+      select: publicProfileSelect,
+      take: 50,
+    });
+
+    return res.json({ candidates: candidates.map(toPublicProfile) });
+  } catch (err) {
+    console.error("Failed to load community feed", err);
+    return res.status(500).json({ error: "Couldn't load community members right now. Please try again." });
+  }
 }
 
 /** POST /api/match/like  { toUserId, isSuperLike? } */
@@ -173,4 +213,4 @@ async function getMyMatches(req, res) {
   return res.json({ matches: normalized });
 }
 
-module.exports = { getDiscoverFeed, likeUser, getDailyLikes, getLikesReceived, getLikesSent, getMyMatches };
+module.exports = { getDiscoverFeed, getCommunityFeed, likeUser, getDailyLikes, getLikesReceived, getLikesSent, getMyMatches };

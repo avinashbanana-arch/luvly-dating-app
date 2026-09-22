@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { PublicProfileDetails } from "./PublicProfileDetails";
 import { Users, Lock, ChevronRight, ArrowLeft, Star, Music, Plane, Dumbbell, Book, Atom, Film, Trophy, CheckCircle, Plus, Heart, X } from "lucide-react";
 import { Profile } from "./SwipeCard";
+import { API_URL, getCommunityFeed } from "../../lib/api";
 
 interface CommunityViewProps {
   isPremium: boolean;
@@ -43,59 +44,81 @@ const zodiacSigns = [
   { value: "Aquarius", symbol: "♒", dates: "Jan 20 - Feb 18" },
   { value: "Pisces", symbol: "♓", dates: "Feb 19 - Mar 20" },
 ];
-// Mock profiles for the community view
-const mockCommunityProfiles: Profile[] = [
-  {
-    id: "c1",
-    name: "Jessica",
-    age: 24,
-    bio: "Love to dance and travel! 💃✈️",
-    location: "New York, NY",
-    occupation: "Dancer",
-    images: ["https://images.unsplash.com/photo-1534528741775-53994a69daeb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwb3J0cmFpdHxlbnwwfHx8fDE3Njc4ODk3NzN8MA&ixlib=rb-4.1.0&q=80&w=1080"],
-    interests: ["Dance", "Travel"],
-  },
-  {
-    id: "c2",
-    name: "David",
-    age: 28,
-    bio: "Gym rat and protein shake connoisseur 💪",
-    location: "Los Angeles, CA",
-    occupation: "Trainer",
-    images: ["https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtYW4lMjBwb3J0cmFpdHxlbnwwfHx8fDE3Njc4ODk3NzN8MA&ixlib=rb-4.1.0&q=80&w=1080"],
-    interests: ["Gym", "Nutrition"],
-  },
-  {
-    id: "c3",
-    name: "Elena",
-    age: 26,
-    bio: "Astrology obsessed! Scorpio sun, Leo moon ♏♌",
-    location: "Chicago, IL",
-    occupation: "Writer",
-    images: ["https://images.unsplash.com/photo-1531123897727-8f129e1688ce?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwb3J0cmFpdCUyMHdvbWFuJTIwZ2xhc3Nlc3xlbnwwfHx8fDE3Njc4ODk3NzN8MA&ixlib=rb-4.1.0&q=80&w=1080"],
-    interests: ["Astrology", "Books"],
-  },
-  {
-    id: "c4",
-    name: "Ryan",
-    age: 29,
-    bio: "Music is life. Let's jam! 🎸",
-    location: "Austin, TX",
-    occupation: "Musician",
-    images: ["https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtYW4lMjBzbWlsaW5nfGVufDB8fHx8MTc2Nzg4OTc3M3ww&ixlib=rb-4.1.0&q=80&w=1080"],
-    interests: ["Music", "Concerts"],
-  },
-  {
-    id: "c5",
-    name: "Sophie",
-    age: 25,
-    bio: "Sci-fi nerd and space enthusiast 🚀",
-    location: "Seattle, WA",
-    occupation: "Researcher",
-    images: ["https://images.unsplash.com/photo-1524504388940-b1c1722653e1?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwb3J0cmFpdHxlbnwwfHx8fDE3Njc4ODk3NzN8MA&ixlib=rb-4.1.0&q=80&w=1080"],
-    interests: ["Science", "Movies"],
-  },
-];
+function mapCommunityUser(user: any): Profile {
+  const photoHost = API_URL.replace(/\/api\/?$/, "");
+  const imageUrl = (value: unknown) => {
+    const url = String(value || "").trim();
+    if (!url || url === "null" || url === "undefined") return "";
+    return /^(https?:|data:|blob:)/i.test(url) ? url : `${photoHost}${url.startsWith("/") ? "" : "/"}${url}`;
+  };
+  const age = user.dob
+    ? Math.max(18, Math.floor((Date.now() - new Date(user.dob).getTime()) / (365.25 * 24 * 60 * 60 * 1000)))
+    : 18;
+  const images = Array.isArray(user.photos)
+    ? user.photos.map((photo: any) => imageUrl(photo?.url || photo)).filter(Boolean)
+    : [];
+  const fallbackImage = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(user.id)}`;
+
+  return {
+    id: user.id,
+    name: user.name || "Luvly member",
+    age,
+    bio: user.bio || "",
+    location: user.city || user.country || "Location not set",
+    occupation: user.occupation || user.jobTitle || "",
+    education: user.education || "",
+    gender: user.gender || "",
+    preference: user.lookingFor || "",
+    zodiacSign: user.zodiacSign || "",
+    communities: user.communities || [],
+    images: images.length ? images : [fallbackImage],
+    interests: (user.interests || []).map((item: any) => item.interest?.name || item.name).filter(Boolean),
+    prompts: Array.isArray(user.prompts) ? user.prompts : [],
+    isVerified: !!user.isVerified,
+  };
+}
+
+function CommunityProfileGrid({
+  profiles,
+  loading,
+  error,
+  onOpenProfile,
+}: {
+  profiles: Profile[];
+  loading: boolean;
+  error: string;
+  onOpenProfile: (profile: Profile) => void;
+}) {
+  if (loading) {
+    return <p className="py-10 text-center text-sm text-white/60">Loading community members…</p>;
+  }
+  if (error) {
+    return <p className="rounded-xl border border-[#ff9caf]/35 bg-[#ff9caf]/10 p-4 text-center text-sm text-[#ffd9aa]">{error}</p>;
+  }
+  if (!profiles.length) {
+    return <p className="py-10 text-center text-sm text-white/60">No members are available here yet. Invite someone to join this community.</p>;
+  }
+  return (
+    <div className="grid grid-cols-2 gap-4">
+      {profiles.map((profile) => (
+        <button
+          key={profile.id}
+          type="button"
+          onClick={() => onOpenProfile(profile)}
+          className="overflow-hidden rounded-2xl bg-white text-left shadow-md transition-shadow hover:shadow-lg"
+        >
+          <div className="relative h-40">
+            <img src={profile.images[0]} alt={profile.name} className="h-full w-full object-cover" />
+            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-2">
+              <h3 className="font-bold text-white">{profile.name}, {profile.age}</h3>
+            </div>
+          </div>
+          <div className="p-3"><p className="line-clamp-2 text-xs text-gray-500">{profile.bio}</p></div>
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function getDismissedProfilesCacheKey(userId: string) {
   return `${COMMUNITY_DISMISSED_PROFILES_KEY}_${userId || "anonymous"}`;
@@ -142,6 +165,9 @@ export function CommunityView({
   const [joiningCommunityId, setJoiningCommunityId] = useState<string | null>(null);
   const [selectedProfile, setSelectedProfile] = useState<Profile | null>(null);
   const [selectedProfileImageIndex, setSelectedProfileImageIndex] = useState(0);
+  const [communityProfiles, setCommunityProfiles] = useState<Profile[]>([]);
+  const [communityFeedLoading, setCommunityFeedLoading] = useState(false);
+  const [communityFeedError, setCommunityFeedError] = useState("");
   const [dismissedProfiles, setDismissedProfiles] = useState<Record<string, string[]>>(() =>
     readDismissedProfilesCache(userId)
   );
@@ -153,6 +179,37 @@ export function CommunityView({
   useEffect(() => {
     setDismissedProfiles(readDismissedProfilesCache(userId));
   }, [userId]);
+
+  useEffect(() => {
+    // The Communities landing page and the astrology sign selector do not
+    // have a feed yet. Every actual member card below is loaded from the API,
+    // never from the old c1/c2 demo data.
+    if (!selectedCommunity || (selectedCommunity === "astrology" && !selectedZodiac)) {
+      setCommunityProfiles([]);
+      setCommunityFeedError("");
+      return;
+    }
+
+    let cancelled = false;
+    setCommunityFeedLoading(true);
+    setCommunityFeedError("");
+    void getCommunityFeed(selectedCommunity, selectedZodiac || undefined)
+      .then((result) => {
+        if (!cancelled) setCommunityProfiles((result.candidates || []).map(mapCommunityUser));
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setCommunityProfiles([]);
+          setCommunityFeedError(error instanceof Error ? error.message : "Couldn't load community members.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setCommunityFeedLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCommunity, selectedZodiac]);
 
   const joinCommunity = (id: string) => {
     if (!isPremium) {
@@ -230,7 +287,7 @@ export function CommunityView({
   const renderContent = () => {
     if (selectedZodiac) {
       const feedKey = getCommunityFeedKey(selectedCommunity, selectedZodiac);
-      const visibleProfiles = mockCommunityProfiles.filter(
+      const visibleProfiles = communityProfiles.filter(
         (profile) => !dismissedProfiles[feedKey]?.includes(profile.id)
       );
       return (
@@ -246,31 +303,12 @@ export function CommunityView({
                 </span>
             )}
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            {visibleProfiles.map((profile) => (
-              <div
-                key={profile.id}
-                onClick={() => openProfile(profile)}
-                className="bg-white rounded-2xl overflow-hidden shadow-md cursor-pointer hover:shadow-lg transition-shadow"
-              >
-                <div className="h-40 relative">
-                  <img
-                    src={profile.images[0]}
-                    alt={profile.name}
-                    className="w-full h-full object-cover"
-                  />
-                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-2">
-                    <h3 className="text-white font-bold">
-                      {profile.name}, {profile.age}
-                    </h3>
-                  </div>
-                </div>
-                <div className="p-3">
-                  <p className="text-xs text-gray-500 line-clamp-2">{profile.bio}</p>
-                </div>
-              </div>
-            ))}
-          </div>
+          <CommunityProfileGrid
+            profiles={visibleProfiles}
+            loading={communityFeedLoading}
+            error={communityFeedError}
+            onOpenProfile={openProfile}
+          />
         </div>
       );
     }
@@ -307,7 +345,7 @@ export function CommunityView({
     if (selectedCommunity) {
       const community = communities.find((c) => c.id === selectedCommunity);
       const feedKey = getCommunityFeedKey(selectedCommunity, null);
-      const visibleProfiles = mockCommunityProfiles.filter(
+      const visibleProfiles = communityProfiles.filter(
         (profile) => !dismissedProfiles[feedKey]?.includes(profile.id)
       );
       return (
@@ -315,31 +353,12 @@ export function CommunityView({
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-2xl font-bold">{community?.name} Enthusiasts</h2>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            {visibleProfiles.map((profile) => (
-              <div
-                key={profile.id}
-                onClick={() => openProfile(profile)}
-                className="bg-white rounded-2xl overflow-hidden shadow-md cursor-pointer hover:shadow-lg transition-shadow"
-              >
-                <div className="h-40 relative">
-                  <img
-                    src={profile.images[0]}
-                    alt={profile.name}
-                    className="w-full h-full object-cover"
-                  />
-                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-2">
-                    <h3 className="text-white font-bold">
-                      {profile.name}, {profile.age}
-                    </h3>
-                  </div>
-                </div>
-                <div className="p-3">
-                  <p className="text-xs text-gray-500 line-clamp-2">{profile.bio}</p>
-                </div>
-              </div>
-            ))}
-          </div>
+          <CommunityProfileGrid
+            profiles={visibleProfiles}
+            loading={communityFeedLoading}
+            error={communityFeedError}
+            onOpenProfile={openProfile}
+          />
         </div>
       );
     }
