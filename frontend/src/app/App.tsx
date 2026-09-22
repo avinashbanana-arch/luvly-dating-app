@@ -423,6 +423,18 @@ export default function App() {
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
+  // Android's system Back button is forwarded by MainActivity as this custom
+  // event. Unlike browser history alone, it also works when the WebView has
+  // no prior URL to return to, preventing Android from closing the app.
+  useEffect(() => {
+    const handleNativeBack = () => {
+      const handled = navigateBackRef.current();
+      if (handled) window.history.pushState({ luvlyGuard: true }, "");
+    };
+    window.addEventListener("nativebackbutton", handleNativeBack);
+    return () => window.removeEventListener("nativebackbutton", handleNativeBack);
+  }, []);
+
   // ---------- Real backend data loading ----------
 
   // Returning users must never be sent back into the blank sign-up wizard.
